@@ -34,6 +34,16 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix=settings.api_prefix)
+
+# Add Supabase router conditionally to avoid import errors
+try:
+    from app.routers import supabase
+    app.include_router(supabase.router, prefix=settings.api_prefix)
+    print("✅ Supabase router loaded successfully")
+except Exception as e:
+    print(f"⚠️ Supabase router failed to load: {e}")
+    print("Supabase endpoints will not be available")
+
 # items.router will be added when frontend needs item functionality
 
 # Root endpoint

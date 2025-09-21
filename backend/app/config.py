@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     allowed_origins: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://jite.vercel.app",
     ]
     
-    # Database settings
-    database_url: str = "sqlite:///./spm.db"
+    # Supabase settings
+    supabase_url: str = ""
+    supabase_key: str = ""
     
     # API settings
     api_prefix: str = "/api"
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields in .env file
 
 
 # Global settings instance

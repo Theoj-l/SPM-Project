@@ -10,6 +10,7 @@ class BaseResponse(BaseModel):
     success: bool = True
     message: str = "Operation completed successfully"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    data: Optional[dict] = None
 
 
 class ErrorResponse(BaseResponse):
