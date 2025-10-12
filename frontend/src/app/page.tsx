@@ -1,8 +1,5 @@
 "use client";
 
-import Image from "next/image";
-import BackendTest from "@/components/BackendTest";
-import SupabaseTest from "@/components/SupabaseTest";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getUserRoleNames,
@@ -20,6 +17,20 @@ export default function Home() {
         <h1 className="text-3xl font-bold tracking-tight">Workspace</h1>
         <p className="text-muted-foreground">Welcome to your Jite workspace</p>
       </div>
+
+      {/* Auto-logout Notice */}
+      {user && (
+        <div className="rounded-lg border bg-yellow-50 border-yellow-200 p-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+            <p className="text-sm text-yellow-800">
+              <strong>Auto-logout:</strong> You will be automatically logged out
+              after 10 seconds of inactivity. A warning will appear 2 seconds
+              before logout.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* User Role Information */}
       {user && (
@@ -67,18 +78,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Backend Connection</h2>
-          <BackendTest />
-        </div>
-
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Supabase Connection</h2>
-          <SupabaseTest />
-        </div>
-      </div>
     </div>
   );
 }

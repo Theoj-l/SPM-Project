@@ -5,6 +5,7 @@ import React, {
   useContext,
   useEffect,
   useState,
+  useRef,
   ReactNode,
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -51,10 +52,55 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const isAuthenticated = !!user;
 
+  // Refs for inactivity timer
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
   // Check for existing authentication on mount
   useEffect(() => {
     checkAuthStatus();
   }, []);
+
+  // Handle user activity events
+  useEffect(() => {
+    if (!isAuthenticated) {
+      stopInactivityTimer();
+      return;
+    }
+
+    // Initialize timer when user is authenticated
+    resetInactivityTimer();
+
+    // Event handler for user activity
+    const handleActivity = () => {
+      resetInactivityTimer();
+    };
+
+    // Events to listen for
+    const events = [
+      "mousedown",
+      "mousemove",
+      "keypress",
+      "scroll",
+      "touchstart",
+      "click",
+      "keydown",
+    ];
+
+    // Add event listeners
+    events.forEach((event) => {
+      document.addEventListener(event, handleActivity, true);
+    });
+
+    // Cleanup function
+    return () => {
+      events.forEach((event) => {
+        document.removeEventListener(event, handleActivity, true);
+      });
+      stopInactivityTimer();
+    };
+  }, [isAuthenticated]);
 
   // Redirect logic based on authentication status
   useEffect(() => {
@@ -228,6 +274,61 @@ export function AuthProvider({ children }: AuthProviderProps) {
     clearAuthData();
     toast.success("Logged out successfully");
     // Don't redirect here - let the logout page handle the redirect
+  };
+
+  // Auto-logout after 15 minutes of inactivity
+  const handleAutoLogout = () => {
+    if (isAuthenticated) {
+      toast.warning("You have been automatically logged out due to inactivity");
+      logout();
+    }
+  };
+
+  // Warning toast 1 minute before auto-logout
+  const handleWarning = () => {
+    if (isAuthenticated) {
+      toast.warning(
+        "In 1 minute, auto logout will be triggered if no activity is detected",
+        {
+          duration: 60000, // Show for 1 minute
+        }
+      );
+    }
+  };
+
+  // Reset inactivity timer
+  const resetInactivityTimer = () => {
+    lastActivityRef.current = Date.now();
+
+    // Clear existing timeouts
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    if (warningTimeoutRef.current) {
+      clearTimeout(warningTimeoutRef.current);
+    }
+
+    // Set warning timeout (1 minute before main timeout)
+    warningTimeoutRef.current = setTimeout(() => {
+      handleWarning();
+    }, 14 * 60 * 1000); // 14 minutes
+
+    // Set main timeout (15 minutes)
+    timeoutRef.current = setTimeout(() => {
+      handleAutoLogout();
+    }, 15 * 60 * 1000); // 15 minutes
+  };
+
+  // Stop inactivity timer
+  const stopInactivityTimer = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (warningTimeoutRef.current) {
+      clearTimeout(warningTimeoutRef.current);
+      warningTimeoutRef.current = null;
+    }
   };
 
   const refreshToken = async (): Promise<boolean> => {
