@@ -28,13 +28,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export type Project = { id: string; name: string; owner_id: string; owner_display_name?: string; cover_url?: string | null; user_role?: string; };
-export type Task = { id: string; project_id?: string | null; title: string; status: "todo"|"in_progress"|"review"|"done"; assignee_id?: string | null; };
+export type Project = { id: string; name: string; owner_id: string; owner_display_name?: string; cover_url?: string | null; user_role?: string; status?: "active" | "archived"; };
+export type Task = { id: string; project_id?: string | null; title: string; description?: string; status: "todo"|"in_progress"|"completed"|"blocked"; due_date?: string; notes?: string; assignee_ids?: string[]; assignee_names?: string[]; assigned?: string[]; type?: "active"|"archived"; tags?: string[]; created_at?: string; };
 export type User = { id: string; email: string; display_name?: string; roles: string[]; };
 export type ProjectMember = { project_id: string; user_id: string; role: string; user_email?: string; user_display_name?: string; };
 
 export const ProjectsAPI = {
-  list: () => api<Project[]>("/api/projects"),
+  list: (includeArchived: boolean = false) => 
+    api<Project[]>(`/api/projects${includeArchived ? '?include_archived=true' : ''}`),
   create: (name: string, cover_url?: string) =>
     api<Project>("/api/projects", {
       method: "POST",
@@ -58,10 +59,162 @@ export const ProjectsAPI = {
     api(`/api/projects/${projectId}/members/${memberId}`, {
       method: "DELETE",
     }),
+  getArchived: () => api<Project[]>("/api/projects/archived"),
+  archive: (projectId: string) =>
+    api(`/api/projects/${projectId}/archive`, {
+      method: "PATCH",
+    }),
+  restore: (projectId: string) =>
+    api(`/api/projects/${projectId}/restore`, {
+      method: "PATCH",
+    }),
 };
 
 export const UsersAPI = {
   list: () => api<User[]>("/api/users"),
   search: (query: string) => api<User[]>(`/api/users/search?query=${encodeURIComponent(query)}`),
+};
+
+export const TasksAPI = {
+  list: (projectId: string, includeArchived: boolean = false) => 
+    api<Task[]>(`/api/projects/${projectId}/tasks${includeArchived ? '?include_archived=true' : ''}`),
+  getById: (taskId: string) => api<Task>(`/api/tasks/${taskId}`),
+  create: (projectId: string, taskData: {
+    title: string;
+    description?: string;
+    due_date?: string;
+    notes?: string;
+    assignee_ids?: string[];
+    status?: "todo" | "in_progress" | "completed" | "blocked";
+  }) =>
+    api<Task>(`/api/projects/${projectId}/tasks`, {
+      method: "POST",
+      body: JSON.stringify(taskData),
+    }),
+  update: (taskId: string, updates: Partial<Task>) =>
+    api<Task>(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    }),
+  updateAssignees: (taskId: string, assignee_ids: string[]) =>
+    api<Task>(`/api/tasks/${taskId}/assignees`, {
+      method: "PATCH",
+      body: JSON.stringify({ assignee_ids }),
+    }),
+  delete: (taskId: string) =>
+    api(`/api/tasks/${taskId}`, {
+      method: "DELETE",
+    }),
+  archive: (taskId: string) =>
+    api<Task>(`/api/tasks/${taskId}/archive`, {
+      method: "PATCH",
+    }),
+  restore: (taskId: string) =>
+    api<Task>(`/api/tasks/${taskId}/restore`, {
+      method: "PATCH",
+    }),
+};
+
+// Comment types and API
+export type Comment = {
+  id: string;
+  task_id: string;
+  user_id: string;
+  parent_comment_id?: string;
+  content: string;
+  created_at: string;
+  user_email?: string;
+  user_display_name?: string;
+  replies?: Comment[];
+};
+
+export const CommentsAPI = {
+  list: (taskId: string) => api<Comment[]>(`/api/tasks/${taskId}/comments`),
+  create: (taskId: string, content: string, parentCommentId?: string) =>
+    api<Comment>(`/api/tasks/${taskId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ 
+        content, 
+        task_id: taskId, 
+        parent_comment_id: parentCommentId 
+      }),
+    }),
+  update: (commentId: string, content: string) =>
+    api<Comment>(`/api/comments/${commentId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+  delete: (commentId: string) =>
+    api(`/api/tasks/comments/${commentId}`, {
+      method: "DELETE",
+    }),
+};
+
+// Sub-task types and API
+export type SubTask = {
+  id: string;
+  title: string;
+  description?: string;
+  parent_task_id: string;
+  status: "todo" | "in_progress" | "completed" | "blocked";
+  assignee_ids?: string[];
+  assignee_names?: string[];
+  tags?: string[];
+  created_at?: string;
+};
+
+export const SubTasksAPI = {
+  list: (taskId: string) => api<SubTask[]>(`/api/tasks/${taskId}/subtasks`),
+  create: (taskId: string, taskData: {
+    title: string;
+    description?: string;
+    status?: "todo" | "in_progress" | "completed" | "blocked";
+    assignee_ids?: string[];
+    tags?: string[];
+  }) =>
+    api<SubTask>(`/api/tasks/${taskId}/subtasks`, {
+      method: "POST",
+      body: JSON.stringify({ ...taskData, parent_task_id: taskId }),
+    }),
+  update: (subtaskId: string, updates: Partial<SubTask>) =>
+    api<SubTask>(`/api/tasks/subtasks/${subtaskId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    }),
+  delete: (subtaskId: string) =>
+    api(`/api/tasks/subtasks/${subtaskId}`, {
+      method: "DELETE",
+    }),
+};
+
+// File types and API
+export type TaskFile = {
+  id: string;
+  filename: string;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  task_id: string;
+  uploaded_by: string;
+  created_at: string;
+  download_url?: string;
+  uploader_email?: string;
+  uploader_display_name?: string;
+};
+
+export const FilesAPI = {
+  list: (taskId: string) => api<TaskFile[]>(`/api/tasks/${taskId}/files`),
+  upload: (taskId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api<TaskFile>(`/api/tasks/${taskId}/files`, {
+      method: "POST",
+      body: formData,
+    });
+  },
+  delete: (fileId: string) =>
+    api(`/api/tasks/files/${fileId}`, {
+      method: "DELETE",
+    }),
 };
 

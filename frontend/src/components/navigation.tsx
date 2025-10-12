@@ -15,6 +15,7 @@ import {
   FileSearch,
   ClipboardClock,
   Bell,
+  Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ interface NavigationItem {
  * - Includes sidebar UI components inline
  */
 export default function Navigation({ children }: NavigationProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
@@ -92,6 +93,11 @@ export default function Navigation({ children }: NavigationProps) {
           href: "/notifications",
           label: "Notifications",
           icon: <Bell className="h-4 w-4" />,
+        },
+        {
+          href: "/archived",
+          label: "Archived",
+          icon: <Archive className="h-4 w-4" />,
         },
       ] as NavigationItem[],
     },

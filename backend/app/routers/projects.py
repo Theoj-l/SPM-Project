@@ -2,7 +2,7 @@ print("✅ Loaded projects.py router file")
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from typing import List, Dict, Optional
-from app.models.project import ProjectCreate, ProjectOut, ProjectMemberAdd, ProjectMemberOut
+from app.models.project import ProjectCreate, ProjectOut, ProjectMemberAdd, ProjectMemberOut, TaskOut, TaskCreate, TaskReassign, TaskAssigneeUpdate
 from app.services.project_service import ProjectService
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
@@ -49,8 +49,8 @@ def create_project(payload: ProjectCreate, user_id: str = Depends(get_current_us
     return ProjectService.create_project(name=payload.name, owner_id=user_id, cover_url=payload.cover_url)
 
 @router.get("", response_model=List[ProjectOut])
-def list_my_projects(user_id: str = Depends(get_current_user_id)):
-    return ProjectService.list_for_user(user_id)
+def list_my_projects(user_id: str = Depends(get_current_user_id), include_archived: bool = False):
+    return ProjectService.list_for_user(user_id, include_archived)
 
 @router.delete("/{project_id}")
 def delete_project(project_id: str, user_id: str = Depends(get_current_user_id)):
@@ -127,15 +127,129 @@ def remove_project_member(project_id: str, member_id: str, user_id: str = Depend
     ProjectService.remove_project_member(project_id, member_id)
     return {"message": "Member removed successfully"}
 
-# @router.post("/{project_id}/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
-# def add_task(project_id: str, payload: TaskCreate, user_id: str = Depends(get_current_user_id)):
-#     # Optionally: check manager role in project_members first
-#     return ProjectService.add_task(project_id=project_id, title=payload.title, assignee_id=payload.assignee_id)
+@router.post("/{project_id}/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
+def add_task(project_id: str, payload: TaskCreate, user_id: str = Depends(get_current_user_id)):
+    # Check if user is a member of the project
+    if not ProjectService.is_project_member(project_id, user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You are not a member of this project"
+        )
+    return ProjectService.add_task(
+        project_id=project_id, 
+        title=payload.title, 
+        description=payload.description,
+        due_date=payload.due_date,
+        notes=payload.notes,
+        assignee_ids=payload.assignee_ids,
+        status=payload.status,
+        tags=payload.tags,
+        recurring=payload.recurring
+    )
 
-# @router.patch("/tasks/{task_id}/reassign", response_model=TaskOut)
-# def reassign_task(task_id: str, payload: TaskReassign, user_id: str = Depends(get_current_user_id)):
-#     return ProjectService.reassign_task(task_id, payload.new_project_id)
+@router.get("/{project_id}/tasks", response_model=List[TaskOut])
+def get_project_tasks(project_id: str, user_id: str = Depends(get_current_user_id), include_archived: bool = False):
+    # Check if user is a member of the project
+    if not ProjectService.is_project_member(project_id, user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You are not a member of this project"
+        )
+    return ProjectService.tasks_by_project(project_id, include_archived)
 
-# @router.get("/{project_id}/kanban")
-# def kanban(project_id: str, user_id: str = Depends(get_current_user_id)) -> Dict[str, list]:
-#     return ProjectService.tasks_grouped_kanban(project_id)
+@router.patch("/tasks/{task_id}/reassign", response_model=TaskOut)
+def reassign_task(task_id: str, payload: TaskReassign, user_id: str = Depends(get_current_user_id)):
+    return ProjectService.reassign_task(task_id, payload.new_project_id)
+
+@router.patch("/tasks/{task_id}", response_model=TaskOut)
+def update_task(task_id: str, updates: dict, user_id: str = Depends(get_current_user_id)):
+    # Get the task to check project membership
+    task = ProjectService.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check if user is a member of the project
+    if not ProjectService.is_project_member(task["project_id"], user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You are not a member of this project"
+        )
+    
+    return ProjectService.update_task(task_id, updates)
+
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: str, user_id: str = Depends(get_current_user_id)):
+    # Get the task to check project membership
+    task = ProjectService.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check if user is a member of the project
+    if not ProjectService.is_project_member(task["project_id"], user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You are not a member of this project"
+        )
+    
+    ProjectService.delete_task(task_id)
+    return {"message": "Task deleted successfully"}
+
+@router.patch("/tasks/{task_id}/assignees", response_model=TaskOut)
+def update_task_assignees(task_id: str, payload: TaskAssigneeUpdate, user_id: str = Depends(get_current_user_id)):
+    # Get the task to check project membership
+    task = ProjectService.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check if user is a member of the project
+    if not ProjectService.is_project_member(task["project_id"], user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: You are not a member of this project"
+        )
+    
+    return ProjectService.update_task_assignees(task_id, payload.assignee_ids)
+
+@router.get("/{project_id}/kanban")
+def kanban(project_id: str, user_id: str = Depends(get_current_user_id)) -> Dict[str, list]:
+    return ProjectService.tasks_grouped_kanban(project_id)
+
+@router.get("/archived", response_model=List[ProjectOut])
+def list_archived_projects(user_id: str = Depends(get_current_user_id)):
+    """List archived projects for the current user"""
+    projects = ProjectService.list_archived_for_user(user_id)
+    return projects
+
+@router.patch("/{project_id}/archive")
+def archive_project(project_id: str, user_id: str = Depends(get_current_user_id)):
+    """Archive a project (owner only)"""
+    try:
+        ProjectService.archive_project(project_id, user_id)
+        return {"message": "Project archived successfully"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.get("/{project_id}/members")
+def get_project_members(project_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get project members with user details"""
+    try:
+        # Check if user has access to this project
+        if not ProjectService.is_project_member(project_id, user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: You are not a member of this project"
+            )
+        
+        members = ProjectService.get_project_members(project_id)
+        return members
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/{project_id}/restore")
+def restore_project(project_id: str, user_id: str = Depends(get_current_user_id)):
+    """Restore an archived project (owner only)"""
+    try:
+        ProjectService.restore_project(project_id, user_id)
+        return {"message": "Project restored successfully"}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
