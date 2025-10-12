@@ -28,8 +28,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export type Project = { id: string; name: string; owner_id: string; cover_url?: string | null; };
+export type Project = { id: string; name: string; owner_id: string; owner_display_name?: string; cover_url?: string | null; user_role?: string; };
 export type Task = { id: string; project_id?: string | null; title: string; status: "todo"|"in_progress"|"review"|"done"; assignee_id?: string | null; };
+export type User = { id: string; email: string; display_name?: string; roles: string[]; };
+export type ProjectMember = { project_id: string; user_id: string; role: string; user_email?: string; user_display_name?: string; };
 
 export const ProjectsAPI = {
   list: () => api<Project[]>("/api/projects"),
@@ -38,5 +40,28 @@ export const ProjectsAPI = {
       method: "POST",
       body: JSON.stringify({ name, cover_url }),
     }),
+  delete: (projectId: string) =>
+    api(`/api/projects/${projectId}`, {
+      method: "DELETE",
+    }),
+  getMembers: (projectId: string) => api<ProjectMember[]>(`/api/projects/${projectId}/members`),
+  addMember: (projectId: string, email: string, role: string = "staff") =>
+    api<ProjectMember>(`/api/projects/${projectId}/add_member`, {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    }),
+  updateMemberRole: (projectId: string, memberId: string, newRole: string) =>
+    api(`/api/projects/${projectId}/members/${memberId}/role?new_role=${newRole}`, {
+      method: "PATCH",
+    }),
+  removeMember: (projectId: string, memberId: string) =>
+    api(`/api/projects/${projectId}/members/${memberId}`, {
+      method: "DELETE",
+    }),
+};
+
+export const UsersAPI = {
+  list: () => api<User[]>("/api/users"),
+  search: (query: string) => api<User[]>(`/api/users/search?query=${encodeURIComponent(query)}`),
 };
 
