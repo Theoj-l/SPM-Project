@@ -1,5 +1,9 @@
 import { Toaster } from "@/components/ui/sonner";
 import Navigation from "@/components/navigation";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import { AuthProvider } from "@/contexts/AuthContext";
+import "@/utils/auth-utils"; // Import auth utilities for console debugging
+import "@/utils/role-utils"; // Import role utilities for console debugging
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -29,8 +33,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Navigation>{children}</Navigation>
-        <Toaster />
+        <AuthProvider>
+          <ProtectedRoute>
+            <Navigation>{children}</Navigation>
+          </ProtectedRoute>
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   );

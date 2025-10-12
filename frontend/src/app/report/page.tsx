@@ -1,4 +1,42 @@
+"use client";
+
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
 export default function ReportPage() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  // Check if user has admin role
+  const isAdmin = user?.roles?.includes("admin") || false;
+
+  useEffect(() => {
+    if (!isLoading && !isAdmin) {
+      // Redirect non-admin users to home page
+      router.push("/");
+    }
+  }, [isLoading, isAdmin, router]);
+
+  // Show loading while checking authentication and roles
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="text-lg font-medium">Loading...</div>
+          <div className="text-sm text-muted-foreground mt-2">
+            Verifying admin permissions
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render anything if user is not admin (will redirect)
+  if (!isAdmin) {
+    return null;
+  }
+
   return (
     <div className="space-y-6">
       <div>

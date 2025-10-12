@@ -1,15 +1,14 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,28 +32,14 @@ export default function LoginPage() {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      const res = await fetch("http://localhost:5000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        const detail = (err && (err.detail || err.message)) || "Login failed";
-        if (res.status === 401) {
-          toast.error("Wrong password");
-        } else if (res.status === 404) {
-          toast.error("Email not found. Please contact administrator");
-        } else {
-          toast.error(detail);
-        }
-        return; // don't proceed to success flow
+      const success = await login(email, password);
+      if (success) {
+        // Login successful, the AuthContext will handle the redirect
+        setEmail("");
+        setPassword("");
       }
-      toast.success("Logged in");
-      router.push("/");
     } catch (err: any) {
-      toast.error(err?.message || "Login failed");
+      console.error("Login error:", err);
     } finally {
       setSubmitting(false);
     }
@@ -117,7 +102,14 @@ export default function LoginPage() {
           </div>
 
           <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting ? "Signing in..." : "Sign in"}
+            {submitting ? (
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Signing in...
+              </div>
+            ) : (
+              "Sign in"
+            )}
           </Button>
         </form>
       </div>

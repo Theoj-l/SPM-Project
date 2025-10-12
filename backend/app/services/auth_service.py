@@ -195,22 +195,19 @@ class AuthService:
         try:
             supabase = get_supabase_client()
             
-            # Set the session for the client
-            supabase.auth.set_session(access_token, "")
+            # Get user with the access token
+            response = supabase.auth.get_user(access_token)
             
-            # Get user
-            user = supabase.auth.get_user()
-            
-            if user:
+            if response and response.user:
                 return {
-                    "id": user.id,
-                    "email": user.email,
-                    "created_at": user.created_at,
-                    "updated_at": user.updated_at,
-                    "email_confirmed_at": user.email_confirmed_at,
-                    "last_sign_in_at": user.last_sign_in_at,
-                    "app_metadata": user.app_metadata,
-                    "user_metadata": user.user_metadata,
+                    "id": response.user.id,
+                    "email": response.user.email,
+                    "created_at": response.user.created_at,
+                    "updated_at": response.user.updated_at,
+                    "email_confirmed_at": response.user.email_confirmed_at,
+                    "last_sign_in_at": response.user.last_sign_in_at,
+                    "app_metadata": response.user.app_metadata,
+                    "user_metadata": response.user.user_metadata,
                 }
             
             return None

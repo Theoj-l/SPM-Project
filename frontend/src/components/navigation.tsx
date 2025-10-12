@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Home,
   User,
@@ -22,6 +23,13 @@ interface NavigationProps {
   children: React.ReactNode;
 }
 
+interface NavigationItem {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  onClick?: () => void;
+}
+
 /**
  * Combined Navigation Component
  * - Contains all sidebar functionality in one component
@@ -32,11 +40,29 @@ export default function Navigation({ children }: NavigationProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const pathname = usePathname();
+  const { user, isLoading } = useAuth();
 
-  // Don't show sidebar on login page
-  if (pathname === "/login") {
+  // Don't show sidebar on login or logout pages
+  if (pathname === "/login" || pathname === "/logout") {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
+
+  // Show loading screen while authentication and roles are being loaded
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg font-medium">Loading...</div>
+          <div className="text-sm text-muted-foreground mt-2">
+            Fetching user roles and permissions
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if user has admin role
+  const isAdmin = user?.roles?.includes("admin") || false;
 
   const mainNavigationItems = [
     {
@@ -52,17 +78,22 @@ export default function Navigation({ children }: NavigationProps) {
           label: "Calendar",
           icon: <ClipboardClock className="h-4 w-4" />,
         },
-        {
-          href: "/report",
-          label: "Reports",
-          icon: <FileSearch className="h-4 w-4" />,
-        },
+        // Only show Reports for admin users
+        ...(isAdmin
+          ? [
+              {
+                href: "/report",
+                label: "Reports",
+                icon: <FileSearch className="h-4 w-4" />,
+              },
+            ]
+          : []),
         {
           href: "/notifications",
           label: "Notifications",
           icon: <Bell className="h-4 w-4" />,
         },
-      ],
+      ] as NavigationItem[],
     },
   ];
 
@@ -81,11 +112,11 @@ export default function Navigation({ children }: NavigationProps) {
           icon: <Settings className="h-4 w-4" />,
         },
         {
-          href: "/login",
+          href: "/logout",
           label: "Logout",
           icon: <LogOut className="h-4 w-4" />,
         },
-      ],
+      ] as NavigationItem[],
     },
   ];
 
@@ -245,8 +276,15 @@ export default function Navigation({ children }: NavigationProps) {
                 )}
 
                 {/* Group Items: Always visible, consistent spacing */}
-                {group.items.map((item) => (
-                  <Link key={item.href} href={item.href}>
+                {group.items.map((item) => {
+                  const handleClick = () => {
+                    setIsMobileOpen(false);
+                    if (item.onClick) {
+                      item.onClick();
+                    }
+                  };
+
+                  const content = (
                     <div
                       className={cn(
                         // Base item styles: flex layout with hover effects and smooth transitions
@@ -259,7 +297,7 @@ export default function Navigation({ children }: NavigationProps) {
                         // Padding: no horizontal padding when collapsed, normal padding when expanded
                         isCollapsed ? "justify-center" : "px-3"
                       )}
-                      onClick={() => setIsMobileOpen(false)}
+                      onClick={handleClick}
                     >
                       {/* Icon Container: Always visible, flex-shrink-0 prevents icon from shrinking */}
                       <div className="flex-shrink-0">{item.icon}</div>
@@ -277,8 +315,16 @@ export default function Navigation({ children }: NavigationProps) {
                         {item.label}
                       </span>
                     </div>
-                  </Link>
-                ))}
+                  );
+
+                  return item.href === "#" ? (
+                    <div key={item.label}>{content}</div>
+                  ) : (
+                    <Link key={item.href} href={item.href}>
+                      {content}
+                    </Link>
+                  );
+                })}
               </div>
             ))}
           </div>
