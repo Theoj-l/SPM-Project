@@ -7,6 +7,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
 from app.routers import health
+from app.routers import tasks
 from app.middleware import LoggingMiddleware
 
 # Create FastAPI app
@@ -34,6 +35,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix=settings.api_prefix)
+app.include_router(tasks.router)  # 👈 register new tasks API
 
 # Add Supabase router conditionally to avoid import errors
 try:
