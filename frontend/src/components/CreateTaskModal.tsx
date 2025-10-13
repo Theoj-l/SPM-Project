@@ -267,7 +267,7 @@ export default function CreateTaskModal({
                   htmlFor="due-date"
                   className="block text-sm font-medium text-gray-700 mb-2"
                 >
-                  Due Date
+                  Due Date & Time
                 </label>
                 <DatePicker
                   value={dueDate}
@@ -275,6 +275,7 @@ export default function CreateTaskModal({
                   placeholder="Select due date"
                   className={errors.due_date ? "border-red-300" : ""}
                   id="due-date"
+                  showTime={true}
                 />
                 {errors.due_date && (
                   <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
@@ -301,8 +302,8 @@ export default function CreateTaskModal({
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="todo">To Do</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="todo">To do</SelectItem>
+                    <SelectItem value="in_progress">In progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="blocked">Blocked</SelectItem>
                   </SelectContent>
@@ -454,12 +455,13 @@ export default function CreateTaskModal({
                           setFormData({
                             ...formData,
                             recurring: {
-                              ...formData.recurring,
+                              enabled: formData.recurring?.enabled || false,
                               frequency: value as
                                 | "daily"
                                 | "weekly"
                                 | "monthly"
                                 | "yearly",
+                              interval: formData.recurring?.interval || 1,
                             },
                           });
                         }}
@@ -490,7 +492,9 @@ export default function CreateTaskModal({
                             setFormData({
                               ...formData,
                               recurring: {
-                                ...formData.recurring,
+                                enabled: formData.recurring?.enabled || false,
+                                frequency:
+                                  formData.recurring?.frequency || "weekly",
                                 interval: parseInt(e.target.value) || 1,
                               },
                             });

@@ -10,10 +10,14 @@ def get_supabase_client() -> Client:
     global _supabase_client
     
     if _supabase_client is None:
-        if not settings.supabase_url or not settings.supabase_key:
+        # Try both naming conventions
+        url = settings.supabase_url or settings.SUPABASE_URL
+        key = settings.supabase_key or settings.SUPABASE_KEY
+        
+        if not url or not key:
             raise ValueError("Supabase URL and key must be set in environment variables")
         
-        _supabase_client = create_client(settings.supabase_url, settings.supabase_key)
+        _supabase_client = create_client(url, key)
     
     return _supabase_client
 

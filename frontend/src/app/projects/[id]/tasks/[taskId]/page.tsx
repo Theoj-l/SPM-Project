@@ -17,6 +17,7 @@ import {
   TaskFile,
 } from "@/lib/api";
 import { isAdmin, isManager } from "@/utils/role-utils";
+import CreateSubTaskModal from "@/components/CreateSubTaskModal";
 import {
   ArrowLeft,
   Edit,
@@ -42,6 +43,133 @@ import {
 } from "@/components/ui/select";
 import AssigneeSelector from "@/components/AssigneeSelector";
 
+// Recursive Comment Component
+function CommentItem({
+  comment,
+  user,
+  onReply,
+  onDelete,
+  isAdmin,
+  isManager,
+}: {
+  comment: Comment;
+  user: any;
+  onReply: (parentId: string, replyText: string) => void;
+  onDelete: (commentId: string) => void;
+  isAdmin: (user: any) => boolean;
+  isManager: (user: any) => boolean;
+}) {
+  const [showReplyForm, setShowReplyForm] = useState(false);
+  const [replyText, setReplyText] = useState("");
+
+  const handleReply = () => {
+    if (replyText.trim()) {
+      onReply(comment.id, replyText);
+      setReplyText("");
+      setShowReplyForm(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-white text-sm font-medium">
+          {comment.user_display_name?.charAt(0) ||
+            comment.user_email?.charAt(0) ||
+            "U"}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-medium text-gray-900">
+              {comment.user_display_name ||
+                comment.user_email?.split("@")[0] ||
+                "Unknown"}
+            </span>
+            <span className="text-xs text-gray-500">
+              {new Date(comment.created_at).toLocaleString()}
+            </span>
+            {(isAdmin(user) || isManager(user)) && (
+              <button
+                onClick={() => onDelete(comment.id)}
+                className="text-red-500 hover:text-red-700 text-xs ml-auto"
+                title="Delete comment (Admin only)"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap mb-2">
+            {comment.content}
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowReplyForm(!showReplyForm)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              Reply
+            </button>
+          </div>
+
+          {/* Reply Form */}
+          {showReplyForm && (
+            <div className="mt-3 ml-4 border-l-2 border-gray-200 pl-4">
+              <div className="flex gap-2">
+                <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                  {user?.email?.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <textarea
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Write a reply..."
+                    className="w-full p-2 border border-gray-300 rounded-md resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    rows={2}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={handleReply}
+                      disabled={!replyText.trim()}
+                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Reply
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowReplyForm(false);
+                        setReplyText("");
+                      }}
+                      className="px-3 py-1 bg-gray-500 text-white text-xs rounded-md hover:bg-gray-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Render Replies */}
+      {comment.replies && comment.replies.length > 0 && (
+        <div className="ml-8 space-y-3">
+          {comment.replies.map((reply) => (
+            <CommentItem
+              key={reply.id}
+              comment={reply}
+              user={user}
+              onReply={onReply}
+              onDelete={onDelete}
+              isAdmin={isAdmin}
+              isManager={isManager}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -62,9 +190,16 @@ export default function TaskDetailPage() {
   const [subtasks, setSubtasks] = useState<SubTask[]>([]);
   const [files, setFiles] = useState<TaskFile[]>([]);
   const [newComment, setNewComment] = useState("");
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-  const [newSubtaskDescription, setNewSubtaskDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  // Sub-comment state
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+
+  // Sub-task modal state
+  const [showSubTaskModal, setShowSubTaskModal] = useState(false);
+  const [creatingSubTask, setCreatingSubTask] = useState(false);
 
   // Edit form state
   const [editForm, setEditForm] = useState({
@@ -90,9 +225,18 @@ export default function TaskDetailPage() {
         ProjectsAPI.list(),
         TasksAPI.getById(taskId),
         ProjectsAPI.getMembers(projectId), // Get project members directly
-        CommentsAPI.list(taskId),
-        SubTasksAPI.list(taskId),
-        FilesAPI.list(taskId),
+        CommentsAPI.list(taskId).catch((err) => {
+          console.error("Error loading comments:", err);
+          return [];
+        }),
+        SubTasksAPI.list(taskId).catch((err) => {
+          console.error("Error loading subtasks:", err);
+          return [];
+        }),
+        FilesAPI.list(taskId).catch((err) => {
+          console.error("Error loading files:", err);
+          return [];
+        }),
       ]);
 
       const foundProject = projects.find((p) => p.id === projectId);
@@ -129,6 +273,9 @@ export default function TaskDetailPage() {
       }
 
       // Set comments, sub-tasks, and files
+      console.log("Comments data:", commentsData);
+      console.log("Comments data type:", typeof commentsData);
+      console.log("Comments data length:", commentsData?.length);
       setComments(commentsData);
       setSubtasks(subtasksData);
       setFiles(filesData);
@@ -261,22 +408,73 @@ export default function TaskDetailPage() {
     }
   };
 
-  // Add sub-task
-  const addSubtask = async () => {
-    if (!newSubtaskTitle.trim() || !task) return;
+  // Add reply to comment
+  const addReply = async (parentCommentId: string, replyText: string) => {
+    if (!replyText.trim() || !task) return;
 
     try {
+      console.log("Adding reply to parent comment:", parentCommentId);
+      const reply = await CommentsAPI.create(
+        task.id,
+        replyText.trim(),
+        parentCommentId
+      );
+      console.log("Reply created:", reply);
+      // Reload all comments to get the proper nested structure
+      const updatedComments = await CommentsAPI.list(task.id);
+      console.log("Updated comments:", updatedComments);
+      setComments(updatedComments);
+    } catch (err: any) {
+      console.error("Error adding reply:", err);
+      setError("Failed to add reply");
+    }
+  };
+
+  // Delete comment (admin only)
+  const deleteComment = async (commentId: string) => {
+    if (!isAdmin(user) && !isManager(user)) {
+      setError("Only admins can delete comments");
+      return;
+    }
+
+    try {
+      await CommentsAPI.delete(commentId);
+      setComments((prevComments) =>
+        prevComments.filter((comment) => comment.id !== commentId)
+      );
+    } catch (err: any) {
+      setError("Failed to delete comment");
+    }
+  };
+
+  // Add sub-task
+  const addSubtask = async (subtaskData: {
+    title: string;
+    description: string;
+    status: "todo" | "in_progress" | "completed" | "blocked";
+    due_date?: string;
+    assignee_ids: string[];
+    tags: string[];
+    notes: string;
+  }) => {
+    if (!task) return;
+
+    try {
+      setCreatingSubTask(true);
       const subtask = await SubTasksAPI.create(task.id, {
-        title: newSubtaskTitle.trim(),
-        description: newSubtaskDescription.trim() || undefined,
-        status: "todo",
-        assignee_ids: [], // Sub-tasks start with no assignees
+        title: subtaskData.title.trim(),
+        description: subtaskData.description.trim() || undefined,
+        status: subtaskData.status,
+        due_date: subtaskData.due_date,
+        assignee_ids: subtaskData.assignee_ids,
+        tags: subtaskData.tags,
+        notes: subtaskData.notes.trim() || undefined,
       });
       setSubtasks([...subtasks, subtask]);
-      setNewSubtaskTitle("");
-      setNewSubtaskDescription("");
     } catch (err: any) {
       setError("Failed to add sub-task");
+    } finally {
+      setCreatingSubTask(false);
     }
   };
 
@@ -285,11 +483,33 @@ export default function TaskDetailPage() {
     if (!selectedFile || !task) return;
 
     try {
+      setUploadingFile(true);
       const file = await FilesAPI.upload(task.id, selectedFile);
       setFiles([...files, file]);
       setSelectedFile(null);
     } catch (err: any) {
       setError("Failed to upload file");
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  // Download file
+  const downloadFile = async (file: TaskFile) => {
+    try {
+      const response = await fetch(`/api/tasks/files/${file.id}/download`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Error downloading file:", error);
+      setError("Failed to download file");
     }
   };
 
@@ -443,7 +663,9 @@ export default function TaskDetailPage() {
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="flex items-center gap-2 mb-4">
               <MessageSquare className="h-5 w-5" />
-              <h2 className="text-lg font-semibold text-gray-900">Comments ({comments.length})</h2>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Comments ({comments.length})
+              </h2>
             </div>
             <div className="space-y-4">
               {/* Comment Input */}
@@ -461,7 +683,7 @@ export default function TaskDetailPage() {
                       rows={3}
                     />
                     <div className="flex justify-end mt-2">
-                      <button 
+                      <button
                         onClick={addComment}
                         disabled={!newComment.trim()}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
@@ -476,26 +698,21 @@ export default function TaskDetailPage() {
               {/* Comments List */}
               {comments.length > 0 ? (
                 <div className="space-y-4">
-                  {comments.map((comment) => (
-                    <div key={comment.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                        {comment.user_display_name?.charAt(0) || comment.user_email?.charAt(0) || "U"}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-gray-900">
-                            {comment.user_display_name || comment.user_email?.split("@")[0] || "Unknown"}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(comment.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                          {comment.content}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                  {comments
+                    .filter((comment) => !comment.parent_comment_id) // Only show top-level comments
+                    .map((comment) => (
+                      <CommentItem
+                        key={comment.id}
+                        comment={comment}
+                        user={user}
+                        onReply={(parentId, replyText) =>
+                          addReply(parentId, replyText)
+                        }
+                        onDelete={deleteComment}
+                        isAdmin={isAdmin}
+                        isManager={isManager}
+                      />
+                    ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
@@ -519,17 +736,8 @@ export default function TaskDetailPage() {
                 </h2>
               </div>
               {canEditTask() && (
-                <button 
-                  onClick={() => {
-                    // Show add sub-task form
-                    const title = prompt("Sub-task title:");
-                    if (title?.trim()) {
-                      const description = prompt("Description (optional):");
-                      setNewSubtaskTitle(title.trim());
-                      setNewSubtaskDescription(description?.trim() || "");
-                      addSubtask();
-                    }
-                  }}
+                <button
+                  onClick={() => setShowSubTaskModal(true)}
                   className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
                 >
                   <Plus className="h-4 w-4" />
@@ -537,14 +745,19 @@ export default function TaskDetailPage() {
                 </button>
               )}
             </div>
-            
+
             {subtasks.length > 0 ? (
               <div className="space-y-3">
                 {subtasks.map((subtask) => (
-                  <div key={subtask.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-md">
+                  <div
+                    key={subtask.id}
+                    className="flex items-center gap-3 p-3 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                  >
                     <Select
                       value={subtask.status}
-                      onValueChange={(value: SubTask["status"]) => updateSubtaskStatus(subtask.id, value)}
+                      onValueChange={(value: SubTask["status"]) =>
+                        updateSubtaskStatus(subtask.id, value)
+                      }
                     >
                       <SelectTrigger className="w-32">
                         <SelectValue />
@@ -556,14 +769,25 @@ export default function TaskDetailPage() {
                         <SelectItem value="blocked">Blocked</SelectItem>
                       </SelectContent>
                     </Select>
-                    
-                    <div className="flex-1">
-                      <h4 className="text-sm font-medium text-gray-900">{subtask.title}</h4>
+
+                    <div
+                      className="flex-1 cursor-pointer"
+                      onClick={() =>
+                        router.push(
+                          `/projects/${projectId}/tasks/${taskId}/subtasks/${subtask.id}`
+                        )
+                      }
+                    >
+                      <h4 className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors">
+                        {subtask.title}
+                      </h4>
                       {subtask.description && (
-                        <p className="text-xs text-gray-600 mt-1">{subtask.description}</p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {subtask.description}
+                        </p>
                       )}
                     </div>
-                    
+
                     {canEditTask() && (
                       <button
                         onClick={() => deleteSubtask(subtask.id)}
@@ -594,17 +818,86 @@ export default function TaskDetailPage() {
                 <h2 className="text-lg font-semibold text-gray-900">Files</h2>
               </div>
               {canEditTask() && (
-                <button className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
+                <label className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm cursor-pointer">
                   <Plus className="h-4 w-4" />
                   Upload File
-                </button>
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) =>
+                      setSelectedFile(e.target.files?.[0] || null)
+                    }
+                    accept="*/*"
+                  />
+                </label>
               )}
             </div>
-            <div className="text-center py-8 text-gray-500">
-              <Paperclip className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-              <p className="text-sm">No files uploaded yet</p>
-              <p className="text-xs text-gray-400">Upload files up to 50MB</p>
-            </div>
+
+            {files.length > 0 ? (
+              <div className="space-y-3">
+                {files.map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-md"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Paperclip className="h-5 w-5 text-gray-400" />
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {file.filename}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {(file.file_size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => downloadFile(file)}
+                      className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+                    >
+                      Download
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Paperclip className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                <p className="text-sm">No files uploaded yet</p>
+                <p className="text-xs text-gray-400">Upload files up to 50MB</p>
+              </div>
+            )}
+
+            {selectedFile && (
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center space-x-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    onClick={uploadFile}
+                    disabled={uploadingFile}
+                    className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 text-sm"
+                  >
+                    {uploadingFile ? "Uploading..." : "Upload"}
+                  </button>
+                  <button
+                    onClick={() => setSelectedFile(null)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Maximum file size: 50MB
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -657,7 +950,16 @@ export default function TaskDetailPage() {
                 )}`}
               >
                 {getStatusIcon(task.status)}
-                {task.status.replace("_", " ")}
+                {task.status === "todo"
+                  ? "To do"
+                  : task.status === "in_progress"
+                  ? "In progress"
+                  : task.status === "completed"
+                  ? "Completed"
+                  : task.status === "blocked"
+                  ? "Blocked"
+                  : (task.status as string).charAt(0).toUpperCase() +
+                    (task.status as string).slice(1).replace("_", " ")}
               </span>
             )}
           </div>
@@ -740,13 +1042,21 @@ export default function TaskDetailPage() {
               </h3>
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <Clock className="h-4 w-4" />
-                {new Date(task.created_at).toLocaleDateString()}
+                {new Date(task.created_at).toLocaleString()}
               </div>
             </div>
           )}
-
         </div>
       </div>
+
+      {/* Sub-task Creation Modal */}
+      <CreateSubTaskModal
+        isOpen={showSubTaskModal}
+        onClose={() => setShowSubTaskModal(false)}
+        onSubmit={addSubtask}
+        projectMembers={projectMembers}
+        loading={creatingSubTask}
+      />
     </div>
   );
 }

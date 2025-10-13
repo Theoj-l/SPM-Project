@@ -36,6 +36,7 @@ export type ProjectMember = { project_id: string; user_id: string; role: string;
 export const ProjectsAPI = {
   list: (includeArchived: boolean = false) => 
     api<Project[]>(`/api/projects${includeArchived ? '?include_archived=true' : ''}`),
+  getById: (projectId: string) => api<Project>(`/api/projects/${projectId}`),
   create: (name: string, cover_url?: string) =>
     api<Project>("/api/projects", {
       method: "POST",
@@ -165,12 +166,15 @@ export type SubTask = {
 
 export const SubTasksAPI = {
   list: (taskId: string) => api<SubTask[]>(`/api/tasks/${taskId}/subtasks`),
+  getById: (subtaskId: string) => api<SubTask>(`/api/tasks/subtasks/${subtaskId}`),
   create: (taskId: string, taskData: {
     title: string;
     description?: string;
     status?: "todo" | "in_progress" | "completed" | "blocked";
     assignee_ids?: string[];
     tags?: string[];
+    due_date?: string;
+    notes?: string;
   }) =>
     api<SubTask>(`/api/tasks/${taskId}/subtasks`, {
       method: "POST",

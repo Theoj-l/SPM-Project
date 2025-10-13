@@ -18,7 +18,7 @@ class ProjectOut(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
     description: Optional[str] = None
-    due_date: Optional[str] = None
+    due_date: Optional[str] = Field(None, description="Due date and time in YYYY-MM-DD HH:MM:SS format")
     notes: Optional[str] = None
     assignee_ids: Optional[List[str]] = Field(default_factory=list, max_items=5)
     status: Literal["todo", "in_progress", "completed", "blocked"] = "todo"
@@ -66,7 +66,7 @@ class TaskOut(BaseModel):
     title: str
     description: Optional[str] = None
     status: Literal["todo","in_progress","completed","blocked"] = "todo"
-    due_date: Optional[str] = None
+    due_date: Optional[str] = Field(None, description="Due date and time in YYYY-MM-DD HH:MM:SS format")
     notes: Optional[str] = None
     assignee_ids: Optional[List[str]] = Field(default_factory=list)
     assignee_names: Optional[List[str]] = Field(default_factory=list)  # For display purposes
@@ -109,6 +109,8 @@ class SubTaskCreate(BaseModel):
     parent_task_id: str = Field(description="Parent task ID")
     status: Literal["todo", "in_progress", "completed", "blocked"] = "todo"
     assignee_ids: Optional[List[str]] = Field(default_factory=list, max_items=5)
+    due_date: Optional[str] = Field(None, description="Due date and time in YYYY-MM-DD HH:MM:SS format")
+    notes: Optional[str] = Field(None, description="Additional notes")
     tags: Optional[List[str]] = Field(default_factory=list, max_items=5)
 
 class SubTaskOut(BaseModel):
@@ -119,6 +121,8 @@ class SubTaskOut(BaseModel):
     status: Literal["todo", "in_progress", "completed", "blocked"] = "todo"
     assignee_ids: Optional[List[str]] = Field(default_factory=list)
     assignee_names: Optional[List[str]] = Field(default_factory=list)
+    due_date: Optional[str] = Field(None, description="Due date and time in YYYY-MM-DD HH:MM:SS format")
+    notes: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
     created_at: Optional[str] = None
 

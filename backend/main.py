@@ -35,8 +35,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix=settings.api_prefix)
-app.include_router(tasks.router)  # 👈 register new tasks API
-app.include_router(api_router, prefix=settings.api_prefix)  # ✅ use it here
+app.include_router(api_router, prefix=settings.api_prefix)  # ✅ includes tasks router
 
 
 # Add Supabase router conditionally to avoid import errors

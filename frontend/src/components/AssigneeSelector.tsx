@@ -24,31 +24,31 @@ export default function AssigneeSelector({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Filter users based on search term and exclude already selected users
-  const filteredUsers = users.filter(
+  const filteredUsers = (users || []).filter(
     (user) =>
       (user.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase())) &&
-      !selectedUserIds.includes(user.id)
+        user.email?.toLowerCase().includes(searchTerm.toLowerCase())) &&
+      !(selectedUserIds || []).includes(user.id)
   );
 
   // Get selected users for display
-  const selectedUsers = users.filter((user) =>
-    selectedUserIds.includes(user.id)
+  const selectedUsers = (users || []).filter((user) =>
+    (selectedUserIds || []).includes(user.id)
   );
 
   const handleUserSelect = (userId: string) => {
-    if (selectedUserIds.length < maxAssignees) {
-      onSelectionChange([...selectedUserIds, userId]);
+    if ((selectedUserIds || []).length < maxAssignees) {
+      onSelectionChange([...(selectedUserIds || []), userId]);
     }
     setSearchTerm("");
   };
 
   const handleUserRemove = (userId: string) => {
-    onSelectionChange(selectedUserIds.filter((id) => id !== userId));
+    onSelectionChange((selectedUserIds || []).filter((id) => id !== userId));
   };
 
   const getUserDisplayName = (user: UserType) => {
-    return user.display_name || user.email;
+    return user.display_name || user.email || "Unknown User";
   };
 
   // Close dropdown when clicking outside
@@ -91,7 +91,7 @@ export default function AssigneeSelector({
         ))}
 
         {/* Add Assignee Button */}
-        {selectedUserIds.length < maxAssignees && (
+        {(selectedUserIds || []).length < maxAssignees && (
           <button
             type="button"
             onClick={() => setIsOpen(!isOpen)}
@@ -103,7 +103,7 @@ export default function AssigneeSelector({
         )}
 
         {/* Placeholder when no assignees */}
-        {selectedUserIds.length === 0 && (
+        {(selectedUserIds || []).length === 0 && (
           <button
             type="button"
             onClick={() => setIsOpen(!isOpen)}
@@ -150,7 +150,9 @@ export default function AssigneeSelector({
                     <div className="font-medium">
                       {getUserDisplayName(user)}
                     </div>
-                    <div className="text-xs text-gray-500">{user.email}</div>
+                    <div className="text-xs text-gray-500">
+                      {user.email || "No email"}
+                    </div>
                   </div>
                 </button>
               ))
@@ -158,7 +160,7 @@ export default function AssigneeSelector({
           </div>
 
           {/* Max Assignees Warning */}
-          {selectedUserIds.length >= maxAssignees && (
+          {(selectedUserIds || []).length >= maxAssignees && (
             <div className="px-3 py-2 text-xs text-orange-600 bg-orange-50 border-t border-gray-200">
               Maximum {maxAssignees} assignees allowed
             </div>

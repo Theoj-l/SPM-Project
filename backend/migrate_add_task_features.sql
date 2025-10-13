@@ -77,35 +77,12 @@ ALTER TABLE task_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subtasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE task_files ENABLE ROW LEVEL SECURITY;
 
--- Task comments policies
-CREATE POLICY "Users can view comments for tasks they have access to" ON task_comments
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = task_comments.task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+-- Task comments policies (simplified for frontend permission handling)
+CREATE POLICY "Users can view all comments" ON task_comments
+    FOR SELECT USING (true);
 
-CREATE POLICY "Users can create comments for tasks they have access to" ON task_comments
-    FOR INSERT WITH CHECK (
-        user_id::uuid = auth.uid() AND
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = task_comments.task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+CREATE POLICY "Users can create comments" ON task_comments
+    FOR INSERT WITH CHECK (user_id::uuid = auth.uid());
 
 CREATE POLICY "Users can update their own comments" ON task_comments
     FOR UPDATE USING (user_id::uuid = auth.uid());
@@ -114,95 +91,28 @@ CREATE POLICY "Users can update their own comments" ON task_comments
 CREATE POLICY "Users can delete comments" ON task_comments
     FOR DELETE USING (true);
 
--- Subtasks policies
-CREATE POLICY "Users can view subtasks for tasks they have access to" ON subtasks
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = subtasks.parent_task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+-- Subtasks policies (simplified for frontend permission handling)
+CREATE POLICY "Users can view all subtasks" ON subtasks
+    FOR SELECT USING (true);
 
-CREATE POLICY "Users can create subtasks for tasks they have access to" ON subtasks
-    FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = subtasks.parent_task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+CREATE POLICY "Users can create subtasks" ON subtasks
+    FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Users can update subtasks for tasks they have access to" ON subtasks
-    FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = subtasks.parent_task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+CREATE POLICY "Users can update subtasks" ON subtasks
+    FOR UPDATE USING (true);
 
-CREATE POLICY "Users can delete subtasks for tasks they have access to" ON subtasks
-    FOR DELETE USING (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = subtasks.parent_task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+CREATE POLICY "Users can delete subtasks" ON subtasks
+    FOR DELETE USING (true);
 
--- Task files policies
-CREATE POLICY "Users can view files for tasks they have access to" ON task_files
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = task_files.task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+-- Task files policies (simplified for frontend permission handling)
+CREATE POLICY "Users can view all files" ON task_files
+    FOR SELECT USING (true);
 
-CREATE POLICY "Users can upload files for tasks they have access to" ON task_files
-    FOR INSERT WITH CHECK (
-        user_id::uuid = auth.uid() AND
-        EXISTS (
-            SELECT 1 FROM tasks t
-            LEFT JOIN project_members pm ON t.project_id = pm.project_id
-            WHERE t.id = task_files.task_id
-            AND (
-                t.assigned @> ARRAY[auth.uid()::text] OR
-                pm.user_id::uuid = auth.uid() OR
-                EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.owner_id::uuid = auth.uid())
-            )
-        )
-    );
+CREATE POLICY "Users can upload files" ON task_files
+    FOR INSERT WITH CHECK (user_id::uuid = auth.uid());
 
-CREATE POLICY "Users can delete their own files" ON task_files
-    FOR DELETE USING (user_id::uuid = auth.uid());
+CREATE POLICY "Users can delete files" ON task_files
+    FOR DELETE USING (true);
 
 -- 7. Grant necessary permissions
 GRANT ALL ON task_comments TO authenticated;

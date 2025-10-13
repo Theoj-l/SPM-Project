@@ -81,6 +81,37 @@ class ProjectService:
         return projects
 
     @staticmethod
+    def get_project_by_id(project_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific project by ID if user has access to it"""
+        # Check if user is a member of the project
+        memberships = SupabaseService.select(
+            "project_members", filters={"user_id": user_id, "project_id": project_id}
+        )
+        if not memberships:
+            return None
+        
+        # Get the project
+        client = SupabaseService.get_client()
+        rows = client.table("projects").select("*").eq("id", project_id).execute()
+        projects = rows.data or []
+        
+        if not projects:
+            return None
+        
+        project = projects[0]
+        
+        # Get owner information
+        owner_rows = client.table("users").select("id, display_name, email").eq("id", project["owner_id"]).execute()
+        owner_data = owner_rows.data[0] if owner_rows.data else {}
+        
+        # Add user's role and owner display name
+        user_membership = memberships[0]
+        project["user_role"] = user_membership["role"]
+        project["owner_display_name"] = owner_data.get("display_name") or owner_data.get("email", "Unknown")
+        
+        return project
+
+    @staticmethod
     def add_task(project_id: str, title: str, description: Optional[str] = None, 
                  due_date: Optional[str] = None, notes: Optional[str] = None,
                  assignee_ids: Optional[List[str]] = None, status: str = "todo") -> Dict[str, Any]:

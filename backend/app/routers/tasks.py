@@ -135,6 +135,18 @@ async def create_subtask(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/subtasks/{subtask_id}", response_model=SubTaskOut)
+async def get_subtask(subtask_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get a specific sub-task by ID"""
+    try:
+        task_service = TaskService()
+        subtask = await task_service.get_subtask_by_id(subtask_id, user_id)
+        if not subtask:
+            raise HTTPException(status_code=404, detail="Sub-task not found")
+        return subtask
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.patch("/subtasks/{subtask_id}", response_model=SubTaskOut)
 async def update_subtask(
     subtask_id: str, 
@@ -198,6 +210,27 @@ async def upload_file(
         return file_data
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/files/{file_id}/download")
+async def download_file(file_id: str, user_id: str = Depends(get_current_user_id)):
+    """Download a file"""
+    try:
+        task_service = TaskService()
+        file_data = await task_service.download_file(file_id, user_id)
+        if not file_data:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        from fastapi.responses import StreamingResponse
+        import io
+        
+        file_stream = io.BytesIO(file_data["content"])
+        return StreamingResponse(
+            io.BytesIO(file_data["content"]),
+            media_type=file_data["content_type"],
+            headers={"Content-Disposition": f"attachment; filename={file_data['filename']}"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

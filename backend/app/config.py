@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_key: str = ""
     
+    # Alternative naming for environment variables
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    
     # API settings
     api_prefix: str = "/api"
     title: str = "SPM Backend API"

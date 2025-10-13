@@ -52,6 +52,19 @@ def create_project(payload: ProjectCreate, user_id: str = Depends(get_current_us
 def list_my_projects(user_id: str = Depends(get_current_user_id), include_archived: bool = False):
     return ProjectService.list_for_user(user_id, include_archived)
 
+@router.get("/archived", response_model=List[ProjectOut])
+def list_archived_projects(user_id: str = Depends(get_current_user_id)):
+    """List archived projects for the current user"""
+    return ProjectService.list_for_user(user_id, include_archived=True)
+
+@router.get("/{project_id}", response_model=ProjectOut)
+def get_project(project_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get a specific project by ID"""
+    project = ProjectService.get_project_by_id(project_id, user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
 @router.delete("/{project_id}")
 def delete_project(project_id: str, user_id: str = Depends(get_current_user_id)):
     # Check if user is the owner of the project
@@ -229,21 +242,6 @@ def archive_project(project_id: str, user_id: str = Depends(get_current_user_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{project_id}/members")
-def get_project_members(project_id: str, user_id: str = Depends(get_current_user_id)):
-    """Get project members with user details"""
-    try:
-        # Check if user has access to this project
-        if not ProjectService.is_project_member(project_id, user_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied: You are not a member of this project"
-            )
-        
-        members = ProjectService.get_project_members(project_id)
-        return members
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{project_id}/restore")
 def restore_project(project_id: str, user_id: str = Depends(get_current_user_id)):

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.models.project import (
     TaskOut, 
     CommentCreate, 
@@ -181,30 +181,63 @@ class TaskService:
     async def get_task_comments(self, task_id: str, user_id: str) -> List[CommentOut]:
         """Get all comments for a task"""
         try:
+            print(f"Loading comments for task {task_id}, user {user_id}")
             # First verify user has access to the task
             task = await self.get_task_by_id(task_id, user_id, include_archived=True)
             if not task:
+                print(f"Task {task_id} not found or access denied for user {user_id}")
                 return []
 
-            result = self.client.table("task_comments").select("""
-                *,
-                users!inner(email, full_name)
-            """).eq("task_id", task_id).order("created_at", desc=False).execute()
+            print(f"Querying task_comments table for task {task_id}")
+            result = self.client.table("task_comments").select("*").eq("task_id", task_id).order("created_at", desc=False).execute()
+            
+            print(f"Query result: {result.data}")
 
-            comments = []
+            # Get all unique user IDs from comments
+            user_ids = list(set([comment["user_id"] for comment in result.data]))
+            
+            # Fetch user data for all comment authors
+            user_data_map = {}
+            if user_ids:
+                users_result = self.client.table("users").select("id, email, display_name").in_("id", user_ids).execute()
+                user_data_map = {user["id"]: user for user in users_result.data}
+                print(f"User data map: {user_data_map}")
+
+            # Build comment map
+            comment_map = {}
+            top_level_comments = []
+            
             for comment_data in result.data:
-                user_data = comment_data["users"]
-                comments.append(CommentOut(
+                user_data = user_data_map.get(comment_data["user_id"], {})
+                comment = CommentOut(
                     id=comment_data["id"],
                     task_id=comment_data["task_id"],
                     user_id=comment_data["user_id"],
+                    parent_comment_id=comment_data.get("parent_comment_id"),
                     content=comment_data["content"],
                     created_at=comment_data["created_at"],
                     user_email=user_data.get("email"),
-                    user_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
-                ))
+                    user_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
+                    replies=[]
+                )
+                
+                comment_map[comment.id] = comment
+                
+                # If it's a top-level comment, add to list
+                if not comment.parent_comment_id:
+                    top_level_comments.append(comment)
             
-            return comments
+            # Build nested structure
+            for comment in comment_map.values():
+                if comment.parent_comment_id and comment.parent_comment_id in comment_map:
+                    parent = comment_map[comment.parent_comment_id]
+                    if not parent.replies:
+                        parent.replies = []
+                    parent.replies.append(comment)
+                    print(f"Added reply {comment.id} to parent {comment.parent_comment_id}")
+            
+            print(f"Returning {len(top_level_comments)} top-level comments")
+            return top_level_comments
         except Exception as e:
             print(f"Error getting comments: {e}")
             return []
@@ -222,25 +255,29 @@ class TaskService:
                 "id": comment_id,
                 "task_id": task_id,
                 "user_id": user_id,
+                "parent_comment_id": comment_data.parent_comment_id,
                 "content": comment_data.content,
                 "created_at": datetime.utcnow().isoformat()
             }
+            
+            print(f"Creating comment with parent_comment_id: {comment_data.parent_comment_id}")
 
             result = self.client.table("task_comments").insert(comment_record).execute()
             
             if result.data:
                 # Get user info for the response
-                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
                 
                 return CommentOut(
                     id=comment_id,
                     task_id=task_id,
                     user_id=user_id,
+                    parent_comment_id=comment_data.parent_comment_id,
                     content=comment_data.content,
                     created_at=comment_record["created_at"],
                     user_email=user_data.get("email"),
-                    user_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    user_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 )
             else:
                 raise Exception("Failed to create comment")
@@ -266,19 +303,17 @@ class TaskService:
             if not task:
                 return []
 
-            result = self.client.table("subtasks").select("""
-                *,
-                users!subtasks_assignee_ids_fkey(email, full_name)
-            """).eq("parent_task_id", task_id).order("created_at", desc=False).execute()
+            result = self.client.table("subtasks").select("*").eq("parent_task_id", task_id).order("created_at", desc=False).execute()
 
             subtasks = []
             for subtask_data in result.data:
                 # Get assignee names
                 assignee_names = []
-                if subtask_data.get("assignee_ids"):
-                    users_result = self.client.table("users").select("email, full_name").in_("id", subtask_data["assignee_ids"]).execute()
+                assigned_ids = subtask_data.get("assigned", [])
+                if assigned_ids:
+                    users_result = self.client.table("users").select("email, display_name").in_("id", assigned_ids).execute()
                     assignee_names = [
-                        user.get("full_name") or user.get("email", "").split("@")[0] 
+                        user.get("display_name") or user.get("email", "").split("@")[0] 
                         for user in users_result.data
                     ]
 
@@ -288,8 +323,11 @@ class TaskService:
                     description=subtask_data.get("description"),
                     parent_task_id=subtask_data["parent_task_id"],
                     status=subtask_data["status"],
-                    assignee_ids=subtask_data.get("assignee_ids", []),
+                    assignee_ids=assigned_ids,  # Map assigned back to assignee_ids
                     assignee_names=assignee_names,
+                    due_date=subtask_data.get("due_date"),
+                    notes=subtask_data.get("notes"),
+                    tags=subtask_data.get("tags", []),
                     created_at=subtask_data.get("created_at")
                 ))
             
@@ -297,6 +335,48 @@ class TaskService:
         except Exception as e:
             print(f"Error getting subtasks: {e}")
             return []
+
+    async def get_subtask_by_id(self, subtask_id: str, user_id: str) -> Optional[SubTaskOut]:
+        """Get a specific sub-task by ID"""
+        try:
+            result = self.client.table("subtasks").select("*").eq("id", subtask_id).execute()
+            
+            if not result.data:
+                return None
+            
+            subtask_data = result.data[0]
+            
+            # Get the parent task to verify access
+            parent_task = await self.get_task_by_id(subtask_data["parent_task_id"], user_id, include_archived=True)
+            if not parent_task:
+                return None
+            
+            # Get assignee names
+            assignee_names = []
+            assigned_ids = subtask_data.get("assigned", [])
+            if assigned_ids:
+                users_result = self.client.table("users").select("email, display_name").in_("id", assigned_ids).execute()
+                assignee_names = [
+                    user.get("display_name") or user.get("email", "").split("@")[0] 
+                    for user in users_result.data
+                ]
+
+            return SubTaskOut(
+                id=subtask_data["id"],
+                title=subtask_data["title"],
+                description=subtask_data.get("description"),
+                parent_task_id=subtask_data["parent_task_id"],
+                status=subtask_data["status"],
+                assignee_ids=assigned_ids,  # Map assigned back to assignee_ids
+                assignee_names=assignee_names,
+                due_date=subtask_data.get("due_date"),
+                notes=subtask_data.get("notes"),
+                tags=subtask_data.get("tags", []),
+                created_at=subtask_data.get("created_at")
+            )
+        except Exception as e:
+            print(f"Error getting subtask by ID: {e}")
+            return None
 
     async def create_subtask(self, task_id: str, subtask_data: SubTaskCreate, user_id: str) -> SubTaskOut:
         """Create a new sub-task"""
@@ -313,7 +393,10 @@ class TaskService:
                 "description": subtask_data.description,
                 "parent_task_id": task_id,
                 "status": subtask_data.status,
-                "assignee_ids": subtask_data.assignee_ids or [],
+                "assigned": subtask_data.assignee_ids or [],  # Map assignee_ids to assigned
+                "due_date": subtask_data.due_date,
+                "notes": subtask_data.notes,
+                "tags": subtask_data.tags or [],
                 "created_at": datetime.utcnow().isoformat()
             }
 
@@ -323,9 +406,9 @@ class TaskService:
                 # Get assignee names
                 assignee_names = []
                 if subtask_data.assignee_ids:
-                    users_result = self.client.table("users").select("email, full_name").in_("id", subtask_data.assignee_ids).execute()
+                    users_result = self.client.table("users").select("email, display_name").in_("id", subtask_data.assignee_ids).execute()
                     assignee_names = [
-                        user.get("full_name") or user.get("email", "").split("@")[0] 
+                        user.get("display_name") or user.get("email", "").split("@")[0] 
                         for user in users_result.data
                     ]
 
@@ -337,6 +420,9 @@ class TaskService:
                     status=subtask_data.status,
                     assignee_ids=subtask_data.assignee_ids or [],
                     assignee_names=assignee_names,
+                    due_date=subtask_data.due_date,
+                    notes=subtask_data.notes,
+                    tags=subtask_data.tags or [],
                     created_at=subtask_record["created_at"]
                 )
             else:
@@ -366,9 +452,9 @@ class TaskService:
                 # Get assignee names
                 assignee_names = []
                 if subtask_data.get("assignee_ids"):
-                    users_result = self.client.table("users").select("email, full_name").in_("id", subtask_data["assignee_ids"]).execute()
+                    users_result = self.client.table("users").select("email, display_name").in_("id", subtask_data["assignee_ids"]).execute()
                     assignee_names = [
-                        user.get("full_name") or user.get("email", "").split("@")[0] 
+                        user.get("display_name") or user.get("email", "").split("@")[0] 
                         for user in users_result.data
                     ]
 
@@ -418,7 +504,7 @@ class TaskService:
 
             result = self.client.table("task_files").select("""
                 *,
-                users!inner(email, full_name)
+                users!inner(email, display_name)
             """).eq("task_id", task_id).order("created_at", desc=False).execute()
 
             files = []
@@ -496,13 +582,45 @@ class TaskService:
                     created_at=file_record["created_at"],
                     download_url=download_url,
                     uploader_email=user_data.get("email"),
-                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    # Use display_name (fallback to email username)
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 )
             else:
                 raise Exception("Failed to save file metadata")
         except Exception as e:
             print(f"Error uploading file: {e}")
             raise e
+
+    async def download_file(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Download a file"""
+        try:
+            # Get file info first
+            file_result = self.client.table("task_files").select("*").eq("id", file_id).execute()
+            if not file_result.data:
+                return None
+            
+            file_data = file_result.data[0]
+            
+            # Verify user has access to the task
+            task = await self.get_task_by_id(file_data["task_id"], user_id, include_archived=True)
+            if not task:
+                return None
+            
+            # Download file content from Supabase Storage
+            storage_path = file_data["filename"]
+            file_content = self.client.storage.from_("task-files").download(storage_path)
+            # Some client versions return bytes directly; ensure we have bytes
+            if isinstance(file_content, dict) and file_content.get("error"):
+                raise Exception(f"Failed to download file: {file_content['error']}")
+            
+            return {
+                "filename": file_data["original_filename"],
+                "content_type": file_data["content_type"],
+                "content": file_content
+            }
+        except Exception as e:
+            print(f"Error downloading file: {e}")
+            return None
 
     async def delete_file(self, file_id: str, user_id: str) -> bool:
         """Delete a file (only by the uploader)"""
