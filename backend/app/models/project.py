@@ -146,7 +146,8 @@ class FileOut(BaseModel):
     original_filename: str
     content_type: str
     file_size: int
-    task_id: str
+    task_id: Optional[str] = None
+    subtask_id: Optional[str] = None
     uploaded_by: str
     created_at: str
     download_url: Optional[str] = None

@@ -194,6 +194,9 @@ async def upload_file(
 ):
     """Upload a file to a task"""
     try:
+        if not file.filename:
+            raise HTTPException(status_code=422, detail="Filename is required")
+        
         # Validate file size (50MB limit)
         file_content = await file.read()
         if len(file_content) > 50 * 1024 * 1024:  # 50MB
@@ -203,7 +206,7 @@ async def upload_file(
         file_data = await task_service.upload_file(
             task_id, 
             file.filename, 
-            file.content_type, 
+            file.content_type or "application/octet-stream", 
             file_content, 
             user_id
         )
@@ -243,5 +246,46 @@ async def delete_file(file_id: str, user_id: str = Depends(get_current_user_id))
         if not success:
             raise HTTPException(status_code=404, detail="File not found")
         return {"message": "File deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Subtask file endpoints
+@router.get("/subtasks/{subtask_id}/files", response_model=List[FileOut])
+async def get_subtask_files(subtask_id: str, user_id: str = Depends(get_current_user_id)):
+    """Get all files for a subtask"""
+    try:
+        task_service = TaskService()
+        files = await task_service.get_subtask_files(subtask_id, user_id)
+        return files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/subtasks/{subtask_id}/files", response_model=FileOut)
+async def upload_subtask_file(
+    subtask_id: str, 
+    file: UploadFile = File(...), 
+    user_id: str = Depends(get_current_user_id)
+):
+    """Upload a file to a subtask"""
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=422, detail="Filename is required")
+        
+        # Validate file size (50MB limit)
+        file_content = await file.read()
+        if len(file_content) > 50 * 1024 * 1024:  # 50MB
+            raise HTTPException(status_code=413, detail="File size cannot exceed 50MB")
+        
+        task_service = TaskService()
+        file_data = await task_service.upload_subtask_file(
+            subtask_id, 
+            file.filename, 
+            file.content_type or "application/octet-stream", 
+            file_content, 
+            user_id
+        )
+        return file_data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

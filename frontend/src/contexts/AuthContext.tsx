@@ -220,7 +220,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
+      const API_BASE =
+        process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5000";
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -231,10 +233,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage =
-          errorData.detail || errorData.message || "Login failed";
+          errorData.detail?.message ||
+          errorData.detail ||
+          errorData.message ||
+          "Login failed";
 
-        if (response.status === 401) {
-          toast.error("Invalid email or password");
+        // Handle account lockout (423 Locked)
+        if (response.status === 423) {
+          const lockoutStatus = errorData.detail?.lockout_status;
+          if (lockoutStatus) {
+            const remainingMinutes =
+              lockoutStatus.remaining_minutes ||
+              Math.ceil((lockoutStatus.remaining_seconds || 0) / 60);
+            toast.error(
+              `Account is locked. Please try again in ${remainingMinutes} minute${
+                remainingMinutes !== 1 ? "s" : ""
+              }.`,
+              { duration: 10000 }
+            );
+            // Return lockout status for UI display
+            return false;
+          } else {
+            toast.error("Account is locked. Please contact an administrator.", {
+              duration: 10000,
+            });
+          }
+        } else if (response.status === 401) {
+          // Handle remaining attempts info
+          const remainingAttempts = errorData.detail?.remaining_attempts;
+          if (remainingAttempts !== undefined) {
+            toast.error(
+              `Invalid email or password. ${remainingAttempts} attempt${
+                remainingAttempts !== 1 ? "s" : ""
+              } remaining.`
+            );
+          } else {
+            toast.error("Invalid email or password");
+          }
         } else if (response.status === 404) {
           toast.error("Email not found. Please contact administrator");
         } else {

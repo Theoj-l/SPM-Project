@@ -1,11 +1,12 @@
 """Authentication router for user login and registration."""
 
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.models.base import BaseResponse
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
+from app.services.lockout_service import LockoutService
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -48,7 +49,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/login", response_model=BaseResponse)
-async def login(request: LoginRequest):
+async def login(request_body: LoginRequest, http_request: Request):
     """
     Authenticate user with email and password.
     
@@ -59,13 +60,51 @@ async def login(request: LoginRequest):
         - expires_in: Token expiration time in seconds
     """
     try:
-        result = AuthService.login(request.email, request.password)
+        email = request_body.email.lower().strip()
+        ip_address = LockoutService.get_client_ip(http_request)
+        
+        # Check if account is locked
+        lockout_status = LockoutService.check_lockout(email)
+        if lockout_status:
+            raise HTTPException(
+                status_code=423,
+                detail={
+                    "message": "Account is locked due to multiple failed login attempts",
+                    "lockout_status": lockout_status
+                }
+            )
+        
+        # Attempt login
+        result = AuthService.login(email, request_body.password)
         
         if not result:
+            # Failed login - record attempt
+            attempt_result = LockoutService.record_failed_attempt(email, ip_address)
+            
+            # Check if account was just locked
+            if attempt_result.get("locked"):
+                raise HTTPException(
+                    status_code=423,
+                    detail={
+                        "message": "Account has been locked due to multiple failed login attempts",
+                        "lockout_status": {
+                            "locked": True,
+                            "remaining_seconds": attempt_result.get("remaining_seconds"),
+                            "remaining_minutes": attempt_result.get("remaining_seconds", 0) // 60
+                        }
+                    }
+                )
+            
             raise HTTPException(
                 status_code=401,
-                detail="Invalid email or password"
+                detail={
+                    "message": "Invalid email or password",
+                    "remaining_attempts": attempt_result.get("remaining_attempts", LockoutService.MAX_FAILED_ATTEMPTS)
+                }
             )
+        
+        # Successful login - reset failed attempts
+        LockoutService.reset_failed_attempts(email)
         
         return BaseResponse(
             success=True,
@@ -450,4 +489,88 @@ async def reset_password(request: ResetPasswordRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to reset password: {str(e)}"
+        )
+
+
+class UnlockAccountRequest(BaseModel):
+    """Unlock account request model."""
+    email: EmailStr
+
+
+@router.post("/unlock-account", response_model=BaseResponse)
+async def unlock_account(request: UnlockAccountRequest, http_request: Request, authorization: str = Header(None)):
+    """
+    Manually unlock a user account (admin only).
+    
+    Args:
+        request: UnlockAccountRequest with user's email
+        http_request: Request object for IP address
+        authorization: Bearer token from Authorization header
+        
+    Returns:
+        Success message if account unlocked
+    """
+    try:
+        # Check authorization
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail="Missing or invalid authorization header"
+            )
+        
+        access_token = authorization.split(" ")[1]
+        admin_user_data = AuthService.get_user(access_token)
+        
+        if not admin_user_data:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired token"
+            )
+        
+        admin_email = admin_user_data.get("email")
+        if not admin_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Admin email not found"
+            )
+        
+        # Check if current user is admin
+        admin_user = UserService.get_user_by_email(admin_email)
+        if not admin_user:
+            raise HTTPException(
+                status_code=404,
+                detail="Admin user not found"
+            )
+        
+        admin_roles = admin_user.get("roles", [])
+        if "admin" not in admin_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin role required"
+            )
+        
+        # Unlock the account
+        target_email = request.email.lower().strip()
+        ip_address = LockoutService.get_client_ip(http_request)
+        
+        success = LockoutService.unlock_account(target_email, unlocked_by=admin_email)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to unlock account"
+            )
+        
+        return BaseResponse(
+            success=True,
+            message=f"Account {target_email} has been unlocked successfully",
+            data={}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to unlock account: {str(e)}"
         )

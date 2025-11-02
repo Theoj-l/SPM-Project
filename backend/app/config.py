@@ -25,11 +25,13 @@ class Settings(BaseSettings):
     
     # Supabase settings
     supabase_url: str = ""
-    supabase_key: str = ""
+    supabase_key: str = ""  # Anon key (deprecated, use service_key for backend)
+    supabase_service_key: str = ""  # Service role key (bypasses RLS)
     
     # Alternative naming for environment variables
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
     
     # API settings
     api_prefix: str = "/api"

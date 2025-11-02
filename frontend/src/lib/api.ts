@@ -3,13 +3,21 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:50
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem('access_token');
   
+  // Don't set Content-Type for FormData - browser sets it automatically with boundary
+  const isFormData = init?.body instanceof FormData;
+  const headers: HeadersInit = {
+    ...(token && { "Authorization": `Bearer ${token}` }),
+    ...(init?.headers || {}),
+  };
+  
+  // Only set Content-Type if not FormData and not already set in init.headers
+  if (!isFormData && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { "Authorization": `Bearer ${token}` }),
-      ...(init?.headers || {}),
-    },
+    headers,
     cache: "no-store",
   });
   
@@ -231,7 +239,8 @@ export type TaskFile = {
   original_filename: string;
   content_type: string;
   file_size: number;
-  task_id: string;
+  task_id?: string;
+  subtask_id?: string;
   uploaded_by: string;
   created_at: string;
   download_url?: string;
@@ -251,7 +260,18 @@ export const FilesAPI = {
       body: formData,
     });
   },
-  // Delete a file from a task
+  // Get all files attached to a subtask
+  listForSubtask: (subtaskId: string) => api<TaskFile[]>(`/api/tasks/subtasks/${subtaskId}/files`),
+  // Upload a file to a subtask
+  uploadForSubtask: (subtaskId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api<TaskFile>(`/api/tasks/subtasks/${subtaskId}/files`, {
+      method: "POST",
+      body: formData,
+    });
+  },
+  // Delete a file from a task or subtask
   delete: (fileId: string) =>
     api(`/api/tasks/files/${fileId}`, {
       method: "DELETE",

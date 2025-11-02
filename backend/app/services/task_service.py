@@ -563,14 +563,15 @@ class TaskService:
 
             files = []
             for file_data in result.data:
-                user_data = file_data["users"]
+                user_data = file_data.get("users", {})
                 files.append(FileOut(
                     id=file_data["id"],
                     filename=file_data["filename"],
                     original_filename=file_data["original_filename"],
                     content_type=file_data["content_type"],
                     file_size=file_data["file_size"],
-                    task_id=file_data["task_id"],
+                    task_id=file_data.get("task_id"),
+                    subtask_id=file_data.get("subtask_id"),
                     uploaded_by=file_data["uploaded_by"],
                     created_at=file_data["created_at"],
                     download_url=file_data.get("download_url"),
@@ -583,6 +584,42 @@ class TaskService:
             print(f"Error getting files: {e}")
             return []
 
+    async def get_subtask_files(self, subtask_id: str, user_id: str) -> List[FileOut]:
+        """Get all files for a subtask"""
+        try:
+            # First verify user has access to the subtask
+            subtask = await self.get_subtask_by_id(subtask_id, user_id)
+            if not subtask:
+                return []
+
+            result = self.client.table("task_files").select("""
+                *,
+                users!inner(email, display_name)
+            """).eq("subtask_id", subtask_id).order("created_at", desc=False).execute()
+
+            files = []
+            for file_data in result.data:
+                user_data = file_data.get("users", {})
+                files.append(FileOut(
+                    id=file_data["id"],
+                    filename=file_data["filename"],
+                    original_filename=file_data["original_filename"],
+                    content_type=file_data["content_type"],
+                    file_size=file_data["file_size"],
+                    task_id=file_data.get("task_id"),
+                    subtask_id=file_data.get("subtask_id"),
+                    uploaded_by=file_data["uploaded_by"],
+                    created_at=file_data["created_at"],
+                    download_url=file_data.get("download_url"),
+                    uploader_email=user_data.get("email"),
+                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                ))
+            
+            return files
+        except Exception as e:
+            print(f"Error getting subtask files: {e}")
+            return []
+
     async def upload_file(self, task_id: str, filename: str, content_type: str, file_content: bytes, user_id: str) -> FileOut:
         """Upload a file to a task"""
         try:
@@ -593,17 +630,32 @@ class TaskService:
 
             file_id = str(uuid.uuid4())
             
-            # Upload to Supabase Storage
-            storage_path = f"task-files/{task_id}/{file_id}_{filename}"
-            upload_result = self.client.storage.from_("task-files").upload(storage_path, file_content, {
-                "content-type": content_type
-            })
+            # Upload to Supabase Storage (path is relative to bucket)
+            storage_path = f"{task_id}/{file_id}_{filename}"
+            try:
+                upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
+                    "content-type": content_type
+                })
+            except Exception as e:
+                error_msg = str(e)
+                if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                    raise Exception(
+                        "Storage bucket 'task_file' not found. "
+                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                    )
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
 
             if upload_result.get("error"):
+                error_data = upload_result["error"]
+                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                    raise Exception(
+                        "Storage bucket 'task_file' not found. "
+                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                    )
                 raise Exception(f"Failed to upload file: {upload_result['error']}")
 
             # Get public URL
-            download_url = self.client.storage.from_("task-files").get_public_url(storage_path)
+            download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
 
             # Save file metadata to database
             file_record = {
@@ -632,6 +684,7 @@ class TaskService:
                     content_type=content_type,
                     file_size=len(file_content),
                     task_id=task_id,
+                    subtask_id=None,
                     uploaded_by=user_id,
                     created_at=file_record["created_at"],
                     download_url=download_url,
@@ -645,6 +698,85 @@ class TaskService:
             print(f"Error uploading file: {e}")
             raise e
 
+    async def upload_subtask_file(self, subtask_id: str, filename: str, content_type: str, file_content: bytes, user_id: str) -> FileOut:
+        """Upload a file to a subtask"""
+        try:
+            # First verify user has access to the subtask
+            subtask = await self.get_subtask_by_id(subtask_id, user_id)
+            if not subtask:
+                raise Exception("Subtask not found or access denied")
+
+            file_id = str(uuid.uuid4())
+            
+            # Upload to Supabase Storage (store under parent task, path is relative to bucket)
+            parent_task_id = subtask.parent_task_id
+            storage_path = f"{parent_task_id}/{subtask_id}/{file_id}_{filename}"
+            try:
+                upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
+                    "content-type": content_type
+                })
+            except Exception as e:
+                error_msg = str(e)
+                if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                    raise Exception(
+                        "Storage bucket 'task_file' not found. "
+                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                    )
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
+
+            if upload_result.get("error"):
+                error_data = upload_result["error"]
+                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                    raise Exception(
+                        "Storage bucket 'task_file' not found. "
+                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                    )
+                raise Exception(f"Failed to upload file: {upload_result['error']}")
+
+            # Get public URL
+            download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
+
+            # Save file metadata to database
+            file_record = {
+                "id": file_id,
+                "filename": storage_path,
+                "original_filename": filename,
+                "content_type": content_type,
+                "file_size": len(file_content),
+                "task_id": parent_task_id,
+                "subtask_id": subtask_id,
+                "uploaded_by": user_id,
+                "created_at": datetime.utcnow().isoformat(),
+                "download_url": download_url
+            }
+
+            result = self.client.table("task_files").insert(file_record).execute()
+            
+            if result.data:
+                # Get user info for the response
+                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_data = user_result.data[0] if user_result.data else {}
+                
+                return FileOut(
+                    id=file_id,
+                    filename=storage_path,
+                    original_filename=filename,
+                    content_type=content_type,
+                    file_size=len(file_content),
+                    task_id=parent_task_id,
+                    subtask_id=subtask_id,
+                    uploaded_by=user_id,
+                    created_at=file_record["created_at"],
+                    download_url=download_url,
+                    uploader_email=user_data.get("email"),
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
+                )
+            else:
+                raise Exception("Failed to save file metadata")
+        except Exception as e:
+            print(f"Error uploading subtask file: {e}")
+            raise e
+
     async def download_file(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Download a file"""
         try:
@@ -655,14 +787,19 @@ class TaskService:
             
             file_data = file_result.data[0]
             
-            # Verify user has access to the task
-            task = await self.get_task_by_id(file_data["task_id"], user_id, include_archived=True)
-            if not task:
-                return None
+            # Verify user has access - check task or subtask
+            if file_data.get("subtask_id"):
+                subtask = await self.get_subtask_by_id(file_data["subtask_id"], user_id)
+                if not subtask:
+                    return None
+            else:
+                task = await self.get_task_by_id(file_data["task_id"], user_id, include_archived=True)
+                if not task:
+                    return None
             
             # Download file content from Supabase Storage
             storage_path = file_data["filename"]
-            file_content = self.client.storage.from_("task-files").download(storage_path)
+            file_content = self.client.storage.from_("task_file").download(storage_path)
             # Some client versions return bytes directly; ensure we have bytes
             if isinstance(file_content, dict) and file_content.get("error"):
                 raise Exception(f"Failed to download file: {file_content['error']}")
@@ -689,7 +826,7 @@ class TaskService:
                 return False  # Only the uploader can delete
 
             # Delete from storage
-            self.client.storage.from_("task-files").remove([file_data["filename"]])
+            self.client.storage.from_("task_file").remove([file_data["filename"]])
 
             # Delete from database
             result = self.client.table("task_files").delete().eq("id", file_id).execute()

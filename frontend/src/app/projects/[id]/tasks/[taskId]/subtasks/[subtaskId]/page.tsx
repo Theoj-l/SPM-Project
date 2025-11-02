@@ -248,7 +248,7 @@ export default function SubTaskDetailPage() {
 
   const loadFiles = async () => {
     try {
-      const filesData = await FilesAPI.list(subtaskId as string);
+      const filesData = await FilesAPI.listForSubtask(subtaskId as string);
       setFiles(filesData);
     } catch (error) {
       console.error("Error loading files:", error);
@@ -324,7 +324,7 @@ export default function SubTaskDetailPage() {
 
     try {
       setUploadingFile(true);
-      await FilesAPI.upload(subtaskId as string, selectedFile);
+      await FilesAPI.uploadForSubtask(subtaskId as string, selectedFile);
       setSelectedFile(null);
       await loadFiles();
     } catch (error) {
