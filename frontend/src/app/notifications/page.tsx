@@ -51,20 +51,33 @@ export default function NotificationsPage() {
               <div className="flex-1">
                 <p className="font-medium">Task completed</p>
                 <p className="text-sm text-muted-foreground">
-                  Great job! You have successfully completed the user
-                  authentication module.
+                  Task "Update documentation" has been marked as completed by
+                  John Doe.
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  6 hours ago
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start space-x-3 p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border-l-4 border-purple-500">
+              <div className="w-2 h-2 bg-purple-500 rounded-full mt-2"></div>
+              <div className="flex-1">
+                <p className="font-medium">New comment</p>
+                <p className="text-sm text-muted-foreground">
+                  Sarah Johnson added a comment on task "Design review".
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">1 day ago</p>
               </div>
             </div>
 
-            <div className="flex items-start space-x-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-950/20 border-l-4 border-gray-400">
-              <div className="w-2 h-2 bg-gray-400 rounded-full mt-2"></div>
+            <div className="flex items-start space-x-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-950/20 border-l-4 border-gray-500">
+              <div className="w-2 h-2 bg-gray-500 rounded-full mt-2"></div>
               <div className="flex-1">
-                <p className="font-medium">Team meeting scheduled</p>
+                <p className="font-medium">System update</p>
                 <p className="text-sm text-muted-foreground">
-                  Weekly standup meeting has been scheduled for tomorrow at
-                  10:00 AM.
+                  The application has been updated with new features and bug
+                  fixes.
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">2 days ago</p>
               </div>
@@ -94,8 +107,20 @@ export default function NotificationsPage() {
                   Receive push notifications in browser
                 </p>
               </div>
-              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 transition-colors">
-                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
+              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
+                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Task assignments</p>
+                <p className="text-sm text-muted-foreground">
+                  Notify when assigned to new tasks
+                </p>
+              </div>
+              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
+                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
               </button>
             </div>
 
@@ -103,7 +128,7 @@ export default function NotificationsPage() {
               <div>
                 <p className="font-medium">Deadline reminders</p>
                 <p className="text-sm text-muted-foreground">
-                  Get reminded about upcoming deadlines
+                  Remind about upcoming deadlines
                 </p>
               </div>
               <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">

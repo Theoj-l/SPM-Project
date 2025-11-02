@@ -16,6 +16,7 @@ import AssigneeSelector from "@/components/AssigneeSelector";
 import CreateTaskModal, { TaskFormData } from "@/components/CreateTaskModal";
 import ProjectDetailSkeleton from "@/components/ProjectDetailSkeleton";
 import TaskListSkeleton from "@/components/TaskListSkeleton";
+import { isAdmin, isManager, canAdminManage } from "@/utils/role-utils";
 import {
   ArrowLeft,
   Plus,
@@ -76,6 +77,17 @@ export default function ProjectDetailPage() {
   // Load project details
   const loadProject = async () => {
     try {
+      // Try to get project directly by ID first (works for admins and members)
+      try {
+        const projectData = await ProjectsAPI.getById(projectId);
+        setProject(projectData);
+        return;
+      } catch (err) {
+        // If direct access fails, try loading from user's projects
+        console.log("Direct project access failed, trying user projects");
+      }
+
+      // Fallback: load user's projects and find the one with matching ID
       const projects = await ProjectsAPI.list();
       const foundProject = projects.find((p) => p.id === projectId);
       if (foundProject) {
@@ -415,6 +427,8 @@ export default function ProjectDetailPage() {
                   ? "bg-yellow-100 text-yellow-800"
                   : project.user_role === "manager"
                   ? "bg-blue-100 text-blue-800"
+                  : project.user_role === "admin"
+                  ? "bg-purple-100 text-purple-800"
                   : "bg-green-100 text-green-800"
               }`}
             >
@@ -422,6 +436,8 @@ export default function ProjectDetailPage() {
                 ? "Owner"
                 : project.user_role === "manager"
                 ? "Manager"
+                : project.user_role === "admin"
+                ? "Admin"
                 : project.user_role === "staff"
                 ? "Staff"
                 : project.user_role?.charAt(0).toUpperCase() +
@@ -547,14 +563,18 @@ export default function ProjectDetailPage() {
                 </Badge>
               )}
             </Button>
-            <Button
-              onClick={() => setShowCreateTaskModal(true)}
-              size="sm"
-              className="flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Add Task
-            </Button>
+            {(project.user_role === "owner" ||
+              project.user_role === "manager" ||
+              canAdminManage(user)) && (
+              <Button
+                onClick={() => setShowCreateTaskModal(true)}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add Task
+              </Button>
+            )}
           </div>
         </div>
 
@@ -876,20 +896,24 @@ export default function ProjectDetailPage() {
                       </div>
                     )}
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (
-                          confirm("Are you sure you want to archive this task?")
-                        ) {
-                          archiveTask(task.id);
-                        }
-                      }}
-                      className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
-                      title="Archive task"
-                    >
-                      <Archive className="h-4 w-4" />
-                    </button>
+                    {!(isAdmin(user) && !canAdminManage(user)) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            confirm(
+                              "Are you sure you want to archive this task?"
+                            )
+                          ) {
+                            archiveTask(task.id);
+                          }
+                        }}
+                        className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
+                        title="Archive task"
+                      >
+                        <Archive className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

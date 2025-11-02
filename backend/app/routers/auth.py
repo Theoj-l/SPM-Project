@@ -36,6 +36,17 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Forgot password request model."""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password request model."""
+    password: str
+    token: str
+
+
 @router.post("/login", response_model=BaseResponse)
 async def login(request: LoginRequest):
     """
@@ -272,4 +283,171 @@ async def get_user_roles(authorization: str = Header(None)):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get user roles: {str(e)}"
+        )
+
+
+@router.post("/forgot-password", response_model=BaseResponse)
+async def forgot_password(request: ForgotPasswordRequest):
+    """
+    Send password reset email to user.
+    
+    Args:
+        request: ForgotPasswordRequest with user's email
+        
+    Returns:
+        Success message if email sent
+    """
+    try:
+        # Get frontend URL from settings for redirect
+        from app.config import settings
+        frontend_url = settings.frontend_url or "http://localhost:3000"
+        redirect_url = f"{frontend_url}/reset-password"
+        
+        success = AuthService.reset_password_for_email(
+            request.email,
+            redirect_url
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send password reset email"
+            )
+        
+        return BaseResponse(
+            success=True,
+            message="Password reset email sent. Please check your inbox.",
+            data={}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send password reset email: {str(e)}"
+        )
+
+
+@router.get("/verify-reset-token", response_model=BaseResponse)
+async def verify_reset_token(token: str):
+    """
+    Verify a password reset token from Supabase.
+    This endpoint is called when user clicks the verification link from email.
+    It verifies the token and returns a redirect URL with the token in hash.
+    
+    Args:
+        token: The verification token from Supabase email link
+        
+    Returns:
+        Redirect response or error
+    """
+    try:
+        from app.config import settings
+        import json
+        from urllib.request import Request, urlopen
+        from urllib.parse import urlencode
+        
+        supabase_url = settings.supabase_url or settings.SUPABASE_URL
+        supabase_key = settings.supabase_key or settings.SUPABASE_KEY
+        
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Supabase configuration error"
+            )
+        
+        # Verify the token with Supabase
+        verify_url = f"{supabase_url.rstrip('/')}/auth/v1/verify?token={token}&type=recovery"
+        
+        req = Request(
+            verify_url,
+            headers={
+                "apikey": supabase_key,
+                "Content-Type": "application/json",
+            },
+            method="GET"
+        )
+        
+        try:
+            with urlopen(req) as response:
+                status_code = response.getcode()
+                if status_code == 200:
+                    response_data = json.loads(response.read().decode('utf-8'))
+                    access_token = response_data.get("access_token")
+                    
+                    if access_token:
+                        # Redirect to frontend with token in hash
+                        from fastapi.responses import RedirectResponse
+                        frontend_url = settings.frontend_url or "http://localhost:3000"
+                        redirect_url = f"{frontend_url}/reset-password#access_token={access_token}&type=recovery"
+                        return RedirectResponse(url=redirect_url)
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Token verification failed - no access token returned"
+                        )
+                else:
+                    response_text = response.read().decode('utf-8')
+                    raise HTTPException(
+                        status_code=status_code,
+                        detail=f"Token verification failed: {response_text}"
+                    )
+        except Exception as http_error:
+            error_body = http_error.read().decode('utf-8') if hasattr(http_error, 'read') else str(http_error)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Token verification error: {error_body}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to verify token: {str(e)}"
+        )
+
+
+@router.post("/reset-password", response_model=BaseResponse)
+async def reset_password(request: ResetPasswordRequest):
+    """
+    Reset user password using a recovery token.
+    
+    Args:
+        request: ResetPasswordRequest with new password and recovery token
+        
+    Returns:
+        Success message if password reset successful
+    """
+    try:
+        if len(request.password) < 6:
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be at least 6 characters"
+            )
+        
+        success = AuthService.update_password_with_token(
+            request.token,
+            request.password
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to reset password. The link may have expired. Please request a new password reset."
+            )
+        
+        return BaseResponse(
+            success=True,
+            message="Password reset successfully",
+            data={}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset password: {str(e)}"
         )

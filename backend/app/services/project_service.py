@@ -15,6 +15,12 @@ class ProjectService:
         except Exception as e:
             print(f"Error getting user roles: {e}")
             return []
+
+    @staticmethod
+    def can_admin_manage(user_id: str) -> bool:
+        """Check if admin user can manage projects (has manager or staff role)"""
+        user_roles = ProjectService.get_user_roles(user_id)
+        return "admin" in user_roles and ("manager" in user_roles or "staff" in user_roles)
     
     @staticmethod
     def create_project(name: str, owner_id: str, cover_url: Optional[str] = None) -> Dict[str, Any]:
@@ -81,14 +87,58 @@ class ProjectService:
         return projects
 
     @staticmethod
+    def list_all_projects(include_archived: bool = False) -> List[Dict[str, Any]]:
+        """List all projects in the system (admin only)"""
+        client = SupabaseService.get_client()
+        
+        # Get all projects
+        rows = client.table("projects").select("*").order("created_at", desc=True).execute()
+        projects = rows.data or []
+        
+        # Filter projects based on include_archived parameter
+        if include_archived:
+            # Include both active and archived projects
+            projects = [p for p in projects if not p.get("status") or p.get("status") in ["active", "archived"]]
+        else:
+            # Only include active projects (default behavior)
+            projects = [p for p in projects if not p.get("status") or p.get("status") == "active"]
+        
+        # Get unique owner IDs
+        owner_ids = list(set([project["owner_id"] for project in projects]))
+        
+        # Fetch owner information from users table
+        owner_info = {}
+        if owner_ids:
+            owner_rows = client.table("users").select("id, display_name, email").in_("id", owner_ids).execute()
+            for owner in owner_rows.data or []:
+                owner_info[owner["id"]] = {
+                    "display_name": owner.get("display_name"),
+                    "email": owner.get("email")
+                }
+        
+        # Add owner display name to each project
+        for project in projects:
+            owner_data = owner_info.get(project["owner_id"], {})
+            project["owner_display_name"] = owner_data.get("display_name") or owner_data.get("email", "Unknown")
+            # For admin view, we don't need user_role since admin can see all projects
+        
+        return projects
+
+    @staticmethod
     def get_project_by_id(project_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific project by ID if user has access to it"""
-        # Check if user is a member of the project
-        memberships = SupabaseService.select(
-            "project_members", filters={"user_id": user_id, "project_id": project_id}
-        )
-        if not memberships:
-            return None
+        # Check if user is admin first
+        user_roles = ProjectService.get_user_roles(user_id)
+        is_admin = "admin" in user_roles
+        
+        # Check if user is a member of the project (unless admin)
+        memberships = []
+        if not is_admin:
+            memberships = SupabaseService.select(
+                "project_members", filters={"user_id": user_id, "project_id": project_id}
+            )
+            if not memberships:
+                return None
         
         # Get the project
         client = SupabaseService.get_client()
@@ -105,8 +155,11 @@ class ProjectService:
         owner_data = owner_rows.data[0] if owner_rows.data else {}
         
         # Add user's role and owner display name
-        user_membership = memberships[0]
-        project["user_role"] = user_membership["role"]
+        if is_admin:
+            project["user_role"] = "admin"
+        else:
+            user_membership = memberships[0]
+            project["user_role"] = user_membership["role"]
         project["owner_display_name"] = owner_data.get("display_name") or owner_data.get("email", "Unknown")
         
         return project
@@ -182,7 +235,12 @@ class ProjectService:
 
     @staticmethod
     def is_project_member(project_id: str, user_id: str) -> bool:
-        """Check if user is a member of the project"""
+        """Check if user is a member of the project or admin"""
+        # Check if user is admin first
+        user_roles = ProjectService.get_user_roles(user_id)
+        if "admin" in user_roles:
+            return True
+            
         memberships = SupabaseService.select(
             "project_members", 
             filters={"project_id": project_id, "user_id": user_id}
@@ -200,7 +258,16 @@ class ProjectService:
 
     @staticmethod
     def can_manage_project(project_id: str, user_id: str) -> bool:
-        """Check if user can manage the project (owner or manager)"""
+        """Check if user can manage the project (owner, manager, or admin+manager/staff)"""
+        user_roles = ProjectService.get_user_roles(user_id)
+        
+        # Check if user is admin with additional roles (manager or staff)
+        if "admin" in user_roles:
+            # Admin alone is read-only, need manager or staff for management
+            if "manager" in user_roles or "staff" in user_roles:
+                return True
+            return False
+            
         memberships = SupabaseService.select(
             "project_members", 
             filters={"project_id": project_id, "user_id": user_id}
@@ -327,10 +394,20 @@ class ProjectService:
 
     @staticmethod
     def archive_project(project_id: str, user_id: str) -> Dict[str, Any]:
-        """Archive a project (owner only)"""
-        # Check if user is owner
-        if not ProjectService.is_project_owner(project_id, user_id):
-            raise PermissionError("Only project owners can archive projects")
+        """Archive a project (owner or admin+manager/staff)"""
+        user_roles = ProjectService.get_user_roles(user_id)
+        
+        # Check if user is admin with additional roles
+        if "admin" in user_roles:
+            # Admin alone is read-only, need manager or staff for management
+            if "manager" in user_roles or "staff" in user_roles:
+                pass  # Allow archiving
+            else:
+                raise PermissionError("Admin role alone cannot archive projects. Admin+Manager/Staff required.")
+        else:
+            # Check if user is owner (non-admin users)
+            if not ProjectService.is_project_owner(project_id, user_id):
+                raise PermissionError("Only project owners or admin+manager/staff can archive projects")
         
         # Update project status to archived
         result = SupabaseService.update(
@@ -342,10 +419,20 @@ class ProjectService:
 
     @staticmethod
     def restore_project(project_id: str, user_id: str) -> Dict[str, Any]:
-        """Restore an archived project (owner only)"""
-        # Check if user is owner
-        if not ProjectService.is_project_owner(project_id, user_id):
-            raise PermissionError("Only project owners can restore projects")
+        """Restore an archived project (owner or admin+manager/staff)"""
+        user_roles = ProjectService.get_user_roles(user_id)
+        
+        # Check if user is admin with additional roles
+        if "admin" in user_roles:
+            # Admin alone is read-only, need manager or staff for management
+            if "manager" in user_roles or "staff" in user_roles:
+                pass  # Allow restoring
+            else:
+                raise PermissionError("Admin role alone cannot restore projects. Admin+Manager/Staff required.")
+        else:
+            # Check if user is owner (non-admin users)
+            if not ProjectService.is_project_owner(project_id, user_id):
+                raise PermissionError("Only project owners or admin+manager/staff can restore projects")
         
         # Update project status to active
         result = SupabaseService.update(

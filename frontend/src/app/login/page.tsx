@@ -5,7 +5,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Eye, EyeOff } from "lucide-react";
+import { toast } from "sonner";
+import { API_BASE } from "@/lib/api";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -16,6 +25,10 @@ export default function LoginPage() {
     {}
   );
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [recoverySuccess, setRecoverySuccess] = useState(false);
 
   const validate = () => {
     const nextErrors: { email?: string; password?: string } = {};
@@ -37,13 +50,74 @@ export default function LoginPage() {
         // Login successful, the AuthContext will handle the redirect
         setEmail("");
         setPassword("");
+        // Keep submitting true to show loading until redirect
+      } else {
+        setSubmitting(false);
       }
     } catch (err: any) {
       console.error("Login error:", err);
-    } finally {
       setSubmitting(false);
     }
   };
+
+  const handleForgotPassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!recoveryEmail) {
+      toast.error("Email is required");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail)) {
+      toast.error("Invalid email address");
+      return;
+    }
+
+    setRecoverySubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: recoveryEmail }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast.error(
+          data.detail || data.message || "Failed to send recovery email"
+        );
+        return;
+      }
+
+      if (data.success) {
+        setRecoverySuccess(true);
+        toast.success("Password reset email sent! Check your inbox.");
+      } else {
+        toast.error("Failed to send recovery email");
+      }
+    } catch (err: any) {
+      console.error("Password recovery error:", err);
+      toast.error("Failed to send recovery email");
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  };
+
+  const closeForgotPasswordDialog = () => {
+    setShowForgotPassword(false);
+    setRecoveryEmail("");
+    setRecoverySuccess(false);
+  };
+
+  // Show loading screen when submitting
+  if (submitting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh grid place-items-center px-4">
@@ -101,18 +175,81 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting ? (
-              <div className="flex items-center gap-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                Signing in...
-              </div>
-            ) : (
-              "Sign in"
-            )}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="text-sm text-primary hover:underline"
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          <Button type="submit" className="w-full">
+            Sign in
           </Button>
         </form>
       </div>
+
+      <Dialog
+        open={showForgotPassword}
+        onOpenChange={closeForgotPasswordDialog}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              {recoverySuccess
+                ? "Check your email for a password reset link."
+                : "Enter your email address and we'll send you a link to reset your password."}
+            </DialogDescription>
+          </DialogHeader>
+          {recoverySuccess ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                We've sent a password reset link to{" "}
+                <strong>{recoveryEmail}</strong>. Please check your inbox and
+                follow the instructions to reset your password.
+              </p>
+              <Button onClick={closeForgotPasswordDialog} className="w-full">
+                Close
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="recovery-email">Email</Label>
+                <Input
+                  id="recovery-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={recoveryEmail}
+                  onChange={(e) => setRecoveryEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeForgotPasswordDialog}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={recoverySubmitting}
+                  className="flex-1"
+                >
+                  {recoverySubmitting ? "Sending..." : "Send Reset Link"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -77,7 +77,14 @@ export const isStaff = (user: UserWithRoles | null): boolean => {
  * Check if user is manager or higher
  */
 export const isManager = (user: UserWithRoles | null): boolean => {
-  return hasMinimumRole(user, "manager");
+  return hasRole(user, "manager");
+};
+
+/**
+ * Check if user has manager role specifically (not admin)
+ */
+export const hasManagerRole = (user: UserWithRoles | null): boolean => {
+  return hasRole(user, "manager");
 };
 
 /**
@@ -133,6 +140,14 @@ export const canAccessFeature = (
   } else {
     return hasAnyRole(user, requiredRoles);
   }
+};
+
+/**
+ * Check if admin user can manage projects (has manager or staff role)
+ * Admin alone is read-only, need manager or staff for management
+ */
+export const canAdminManage = (user: UserWithRoles | null): boolean => {
+  return isAdmin(user) && (hasRole(user, "manager") || hasRole(user, "staff"));
 };
 
 

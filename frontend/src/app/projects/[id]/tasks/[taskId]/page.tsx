@@ -16,7 +16,7 @@ import {
   SubTask,
   TaskFile,
 } from "@/lib/api";
-import { isAdmin, isManager } from "@/utils/role-utils";
+import { isAdmin, isManager, canAdminManage } from "@/utils/role-utils";
 import CreateSubTaskModal from "@/components/CreateSubTaskModal";
 import {
   ArrowLeft,
@@ -214,15 +214,30 @@ export default function TaskDetailPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+
+      // Try to get project directly by ID first (works for admins and members)
+      let foundProject;
+      try {
+        foundProject = await ProjectsAPI.getById(projectId);
+      } catch (err) {
+        // If direct access fails, try loading from user's projects
+        console.log("Direct project access failed, trying user projects");
+        const projects = await ProjectsAPI.list();
+        foundProject = projects.find((p) => p.id === projectId);
+      }
+
+      if (!foundProject) {
+        setError("Project not found");
+        return;
+      }
+
       const [
-        projects,
         taskData,
         projectMembersData,
         commentsData,
         subtasksData,
         filesData,
       ] = await Promise.all([
-        ProjectsAPI.list(),
         TasksAPI.getById(taskId),
         ProjectsAPI.getMembers(projectId), // Get project members directly
         CommentsAPI.list(taskId).catch((err) => {
@@ -239,23 +254,17 @@ export default function TaskDetailPage() {
         }),
       ]);
 
-      const foundProject = projects.find((p) => p.id === projectId);
-      if (foundProject) {
-        setProject(foundProject);
+      setProject(foundProject);
 
-        // Convert project members data to User format for AssigneeSelector
-        const members: User[] = projectMembersData.map((member: any) => ({
-          id: member.user_id,
-          email: member.user_email,
-          display_name: member.user_display_name,
-          roles: [member.role], // Convert role to roles array
-        }));
+      // Convert project members data to User format for AssigneeSelector
+      const members: User[] = projectMembersData.map((member: any) => ({
+        id: member.user_id,
+        email: member.user_email,
+        display_name: member.user_display_name,
+        roles: [member.role], // Convert role to roles array
+      }));
 
-        setProjectMembers(members);
-      } else {
-        setError("Project not found");
-        return;
-      }
+      setProjectMembers(members);
 
       if (taskData) {
         setTask(taskData);
@@ -322,8 +331,11 @@ export default function TaskDetailPage() {
   const canEditTask = () => {
     if (!task || !user) return false;
 
-    // Admins and managers can always edit
-    if (isAdmin(user) || isManager(user)) return true;
+    // Admin+Manager/Staff can edit, but admin alone is read-only
+    if (canAdminManage(user)) return true;
+
+    // Managers can always edit
+    if (isManager(user)) return true;
 
     // Project owners can edit
     if (project?.owner_id === user.id) return true;
@@ -336,8 +348,13 @@ export default function TaskDetailPage() {
   const canArchiveTask = () => {
     if (!task || !user) return false;
 
-    // Only admins, managers, and project owners can archive
-    if (isAdmin(user) || isManager(user)) return true;
+    // Admin+Manager/Staff can archive, but admin alone is read-only
+    if (canAdminManage(user)) return true;
+
+    // Managers can archive
+    if (isManager(user)) return true;
+
+    // Project owners can archive
     if (project?.owner_id === user.id) return true;
 
     return false;

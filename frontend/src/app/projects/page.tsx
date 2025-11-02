@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { ProjectsAPI, Project } from "@/lib/api";
 import { Plus, Folder, X } from "lucide-react";
+import { hasManagerRole, canAdminManage } from "@/utils/role-utils";
 
 export default function ProjectsPage() {
+  const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showInput, setShowInput] = useState(false);
   const [name, setName] = useState("");
@@ -49,14 +52,15 @@ export default function ProjectsPage() {
       {/* Header Section */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Projects</h1>
-        {!showInput ? (
+        {(hasManagerRole(user) || canAdminManage(user)) && !showInput && (
           <button
             onClick={() => setShowInput(true)}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2 bg-black text-white hover:bg-gray-800"
           >
             <Plus className="h-4 w-4" /> Create Project
           </button>
-        ) : (
+        )}
+        {showInput && (
           <div className="flex gap-2 items-center">
             <input
               type="text"
@@ -128,4 +132,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-

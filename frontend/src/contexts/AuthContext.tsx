@@ -108,8 +108,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (isAuthenticated && pathname === "/login") {
         // User is authenticated but on login page, redirect to home
         router.push("/");
-      } else if (!isAuthenticated && pathname !== "/login") {
-        // User is not authenticated and not on login page, redirect to login
+      } else if (
+        !isAuthenticated &&
+        pathname !== "/login" &&
+        pathname !== "/reset-password"
+      ) {
+        // User is not authenticated and not on login/reset-password page, redirect to login
         router.push("/login");
       }
     }

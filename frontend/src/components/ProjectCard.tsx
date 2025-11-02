@@ -3,6 +3,8 @@
 import { Project } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { Folder, Users, Archive, Crown, Shield, User } from "lucide-react";
+import { canAdminManage, isAdmin } from "@/utils/role-utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ProjectCardProps {
   project: Project;
@@ -16,6 +18,7 @@ export default function ProjectCard({
   onArchive,
 }: ProjectCardProps) {
   const router = useRouter();
+  const { user } = useAuth();
 
   // Get role icon
   const getRoleIcon = (role: string) => {
@@ -123,15 +126,16 @@ export default function ProjectCard({
           )}
         </div>
 
-        {project.user_role === "owner" && (
-          <button
-            onClick={handleArchive}
-            className="p-1.5 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
-            title="Archive Project"
-          >
-            <Archive className="h-4 w-4" />
-          </button>
-        )}
+        {project.user_role === "owner" &&
+          !(isAdmin(user) && !canAdminManage(user)) && (
+            <button
+              onClick={handleArchive}
+              className="p-1.5 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+              title="Archive Project"
+            >
+              <Archive className="h-4 w-4" />
+            </button>
+          )}
       </div>
     </div>
   );

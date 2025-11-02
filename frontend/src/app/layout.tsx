@@ -1,7 +1,9 @@
 import { Toaster } from "@/components/ui/sonner";
 import Navigation from "@/components/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import LoadingOverlay from "@/components/LoadingOverlay";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LoadingProvider } from "@/contexts/LoadingContext";
 import "@/utils/auth-utils"; // Import auth utilities for console debugging
 import "@/utils/role-utils"; // Import role utilities for console debugging
 import type { Metadata } from "next";
@@ -34,9 +36,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AuthProvider>
-          <ProtectedRoute>
-            <Navigation>{children}</Navigation>
-          </ProtectedRoute>
+          <LoadingProvider>
+            <ProtectedRoute>
+              <Navigation>{children}</Navigation>
+            </ProtectedRoute>
+            <LoadingOverlay />
+          </LoadingProvider>
           <Toaster />
         </AuthProvider>
       </body>

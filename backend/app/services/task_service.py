@@ -8,6 +8,7 @@ from app.models.project import (
     FileOut
 )
 from app.supabase_client import get_supabase_client
+from app.services.project_service import ProjectService
 import uuid
 from datetime import datetime
 
@@ -41,21 +42,29 @@ class TaskService:
             # Check if user has access to this task
             has_access = False
             
-            # Check if user is project owner
-            if project["owner_id"] == user_id:
-                has_access = True
-            else:
-                # Check if user is a project member
-                members_result = self.client.table("project_members").select("user_id").eq("project_id", project["id"]).execute()
-                for member in members_result.data:
-                    if member["user_id"] == user_id:
-                        has_access = True
-                        break
-                
-                # If not a project member, check if user is assigned to this task
-                if not has_access and task_data.get("assigned"):
-                    if user_id in task_data["assigned"]:
-                        has_access = True
+            # Check if user is admin first
+            user_result = self.client.table("users").select("roles").eq("id", user_id).execute()
+            if user_result.data and user_result.data[0].get("roles"):
+                user_roles = user_result.data[0]["roles"]
+                if "admin" in user_roles:
+                    has_access = True
+            
+            if not has_access:
+                # Check if user is project owner
+                if project["owner_id"] == user_id:
+                    has_access = True
+                else:
+                    # Check if user is a project member
+                    members_result = self.client.table("project_members").select("user_id").eq("project_id", project["id"]).execute()
+                    for member in members_result.data:
+                        if member["user_id"] == user_id:
+                            has_access = True
+                            break
+                    
+                    # If not a project member, check if user is assigned to this task
+                    if not has_access and task_data.get("assigned"):
+                        if user_id in task_data["assigned"]:
+                            has_access = True
             
             if not has_access:
                 return None
@@ -94,6 +103,21 @@ class TaskService:
             if not task:
                 return None
 
+            # Check if user can manage tasks (admin alone is read-only)
+            user_roles = ProjectService.get_user_roles(user_id)
+            can_manage = False
+            
+            if "admin" in user_roles:
+                # Admin alone is read-only, need manager or staff for management
+                if "manager" in user_roles or "staff" in user_roles:
+                    can_manage = True
+            else:
+                # Check project membership for non-admin users
+                can_manage = ProjectService.can_manage_project(task.project_id, user_id)
+            
+            if not can_manage:
+                raise PermissionError("Admin role alone cannot modify tasks. Admin+Manager/Staff required.")
+
             # Prepare update data - only allow certain fields to be updated
             allowed_fields = ['title', 'description', 'status', 'notes', 'assignee_ids']
             update_data = {}
@@ -130,6 +154,21 @@ class TaskService:
             if not task:
                 return False
 
+            # Check if user can manage tasks (admin alone is read-only)
+            user_roles = ProjectService.get_user_roles(user_id)
+            can_manage = False
+            
+            if "admin" in user_roles:
+                # Admin alone is read-only, need manager or staff for management
+                if "manager" in user_roles or "staff" in user_roles:
+                    can_manage = True
+            else:
+                # Check project membership for non-admin users
+                can_manage = ProjectService.can_manage_project(task.project_id, user_id)
+            
+            if not can_manage:
+                raise PermissionError("Admin role alone cannot delete tasks. Admin+Manager/Staff required.")
+
             # Delete the task
             result = self.client.table("tasks").delete().eq("id", task_id).execute()
             return len(result.data) > 0
@@ -144,6 +183,21 @@ class TaskService:
             task = await self.get_task_by_id(task_id, user_id)
             if not task:
                 return None
+
+            # Check if user can manage tasks (admin alone is read-only)
+            user_roles = ProjectService.get_user_roles(user_id)
+            can_manage = False
+            
+            if "admin" in user_roles:
+                # Admin alone is read-only, need manager or staff for management
+                if "manager" in user_roles or "staff" in user_roles:
+                    can_manage = True
+            else:
+                # Check project membership for non-admin users
+                can_manage = ProjectService.can_manage_project(task.project_id, user_id)
+            
+            if not can_manage:
+                raise PermissionError("Admin role alone cannot archive tasks. Admin+Manager/Staff required.")
 
             # Archive the task by setting type to "archived"
             result = self.client.table("tasks").update({"type": "archived"}).eq("id", task_id).execute()

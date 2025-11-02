@@ -20,6 +20,9 @@ class Settings(BaseSettings):
         "https://jite.vercel.app",
     ]
     
+    # Frontend URL for redirects
+    frontend_url: str = "http://localhost:3000"
+    
     # Supabase settings
     supabase_url: str = ""
     supabase_key: str = ""

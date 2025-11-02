@@ -215,3 +215,154 @@ class AuthService:
         except Exception as e:
             print(f"Get user error: {str(e)}")
             return None
+    
+    @staticmethod
+    def reset_password_for_email(email: str, redirect_url: Optional[str] = None) -> bool:
+        """
+        Send password reset email to user.
+        
+        Args:
+            email: User's email address
+            redirect_url: Optional redirect URL for the password reset link
+            
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        try:
+            import json
+            from urllib.request import Request, urlopen
+            from urllib.parse import urlencode
+            
+            # Get Supabase URL and key from settings
+            supabase_url = settings.supabase_url or settings.SUPABASE_URL
+            supabase_key = settings.supabase_key or settings.SUPABASE_KEY
+            
+            if not supabase_url or not supabase_key:
+                print("Supabase URL or key not configured")
+                return False
+            
+            # Default redirect URL if not provided
+            if not redirect_url:
+                redirect_url = f"{settings.frontend_url or 'http://localhost:3000'}/reset-password"
+            
+            # Make direct HTTP request to Supabase Auth API
+            auth_url = f"{supabase_url.rstrip('/')}/auth/v1/recover?{urlencode({'redirect_to': redirect_url})}"
+            
+            data = json.dumps({"email": email}).encode('utf-8')
+            req = Request(
+                auth_url,
+                data=data,
+                headers={
+                    "apikey": supabase_key,
+                    "Content-Type": "application/json",
+                },
+                method="POST"
+            )
+            
+            try:
+                with urlopen(req) as response:
+                    status_code = response.getcode()
+                    # Supabase returns 200 even if email doesn't exist (security feature)
+                    if status_code in [200, 204]:
+                        return True
+                    else:
+                        response_text = response.read().decode('utf-8')
+                        print(f"Password reset API error: {status_code} - {response_text}")
+                        return False
+            except Exception as http_error:
+                # urllib raises HTTPError for non-2xx status codes
+                error_body = http_error.read().decode('utf-8') if hasattr(http_error, 'read') else str(http_error)
+                print(f"Password reset HTTP error: {error_body}")
+                return False
+            
+        except Exception as e:
+            print(f"Password reset error: {str(e)}")
+            return False
+    
+    @staticmethod
+    def update_password_with_token(access_token: str, new_password: str) -> bool:
+        """
+        Update user password using a recovery token.
+        For Supabase, we need to first exchange the recovery token for a session,
+        then update the password with that session.
+        
+        Args:
+            access_token: The access token from the password reset link
+            new_password: The new password
+            
+        Returns:
+            True if password updated successfully, False otherwise
+        """
+        try:
+            import json
+            from urllib.request import Request, urlopen
+            
+            # Get Supabase URL and key from settings
+            supabase_url = settings.supabase_url or settings.SUPABASE_URL
+            supabase_key = settings.supabase_key or settings.SUPABASE_KEY
+            
+            if not supabase_url or not supabase_key:
+                print("Supabase URL or key not configured")
+                return False
+            
+            # Step 1: Exchange recovery token for a session token
+            # Supabase requires us to verify/exchange the recovery token first
+            token_exchange_url = f"{supabase_url.rstrip('/')}/auth/v1/token?grant_type=password"
+            
+            exchange_data = json.dumps({
+                "email": "",  # Not needed for recovery token exchange
+                "password": "",  # Not needed for recovery token exchange
+            }).encode('utf-8')
+            
+            # First, try to get user info with the recovery token to verify it's valid
+            user_url = f"{supabase_url.rstrip('/')}/auth/v1/user"
+            user_req = Request(
+                user_url,
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                method="GET"
+            )
+            
+            try:
+                # Verify the token works by getting user info
+                with urlopen(user_req) as user_response:
+                    user_status = user_response.getcode()
+                    if user_status not in [200]:
+                        user_text = user_response.read().decode('utf-8')
+                        print(f"Token verification failed: {user_status} - {user_text}")
+                        return False
+                    
+                    # Token is valid, now update password
+                    update_data = json.dumps({"password": new_password}).encode('utf-8')
+                    update_req = Request(
+                        user_url,
+                        data=update_data,
+                        headers={
+                            "apikey": supabase_key,
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                        },
+                        method="PUT"
+                    )
+                    
+                    with urlopen(update_req) as update_response:
+                        update_status = update_response.getcode()
+                        if update_status in [200, 204]:
+                            print("Password updated successfully")
+                            return True
+                        else:
+                            update_text = update_response.read().decode('utf-8')
+                            print(f"Password update API error: {update_status} - {update_text}")
+                            return False
+                            
+            except Exception as http_error:
+                error_body = http_error.read().decode('utf-8') if hasattr(http_error, 'read') else str(http_error)
+                print(f"Password update HTTP error: {error_body}")
+                return False
+            
+        except Exception as e:
+            print(f"Password update error: {str(e)}")
+            return False

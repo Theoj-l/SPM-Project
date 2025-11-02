@@ -46,11 +46,42 @@ def get_current_user_id(authorization: str = Header(None)) -> str:
 def create_project(payload: ProjectCreate, user_id: str = Depends(get_current_user_id)):
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="Project name is required.")
+    
+    # Check if user can create projects (managers or admin+manager/staff)
+    user_roles = ProjectService.get_user_roles(user_id)
+    can_create = False
+    
+    if "admin" in user_roles:
+        # Admin alone is read-only, need manager or staff for management
+        if "manager" in user_roles or "staff" in user_roles:
+            can_create = True
+    else:
+        # Check if user is manager
+        can_create = "manager" in user_roles
+    
+    if not can_create:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Manager role or Admin+Manager/Staff required to create projects"
+        )
+    
     return ProjectService.create_project(name=payload.name, owner_id=user_id, cover_url=payload.cover_url)
 
 @router.get("", response_model=List[ProjectOut])
 def list_my_projects(user_id: str = Depends(get_current_user_id), include_archived: bool = False):
     return ProjectService.list_for_user(user_id, include_archived)
+
+@router.get("/admin/all", response_model=List[ProjectOut])
+def list_all_projects_admin(user_id: str = Depends(get_current_user_id), include_archived: bool = False):
+    """List all projects in the system (admin only)"""
+    # Check if user is admin
+    user_roles = ProjectService.get_user_roles(user_id)
+    if "admin" not in user_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Admin role required"
+        )
+    return ProjectService.list_all_projects(include_archived)
 
 @router.get("/archived", response_model=List[ProjectOut])
 def list_archived_projects(user_id: str = Depends(get_current_user_id)):

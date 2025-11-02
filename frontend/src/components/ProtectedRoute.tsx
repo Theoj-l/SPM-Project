@@ -20,10 +20,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
   }, [isAuthLoading, isAuthenticated, pathname, router]);
 
-  // For login page, show immediately without any loading
-  if (pathname === "/login") {
+  // For login and reset-password pages, show immediately without any loading
+  if (pathname === "/login" || pathname === "/reset-password") {
     // If user is authenticated, redirect to logout (handled by useEffect)
-    // Otherwise, show login page immediately
+    // Otherwise, show page immediately
     return <>{children}</>;
   }
 
