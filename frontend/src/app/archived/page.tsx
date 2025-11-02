@@ -85,8 +85,7 @@ export default function ArchivedPage() {
   const restoreProject = async (projectId: string) => {
     try {
       setRestoringProject(projectId);
-      // TODO: Implement project restore API
-      console.log("Restore project:", projectId);
+      await ProjectsAPI.restore(projectId);
       await loadArchivedData(); // Reload to update the list
     } catch (err: any) {
       setError("Failed to restore project");

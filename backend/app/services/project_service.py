@@ -167,7 +167,8 @@ class ProjectService:
     @staticmethod
     def add_task(project_id: str, title: str, description: Optional[str] = None, 
                  due_date: Optional[str] = None, notes: Optional[str] = None,
-                 assignee_ids: Optional[List[str]] = None, status: str = "todo") -> Dict[str, Any]:
+                 assignee_ids: Optional[List[str]] = None, status: str = "todo",
+                 tags: Optional[List[str]] = None, recurring: Optional[dict] = None) -> Dict[str, Any]:
         payload = {
             "project_id": project_id, 
             "title": title.strip(),
@@ -182,8 +183,51 @@ class ProjectService:
             payload["notes"] = notes.strip()
         if assignee_ids:
             payload["assigned"] = assignee_ids  # Using 'assigned' field from database schema
+        if tags:
+            payload["tags"] = tags
+        if recurring:
+            payload["recurring"] = recurring
+        
+        task_result = SupabaseService.insert("tasks", payload)
+        
+        # Create notifications for assigned users
+        if assignee_ids and task_result:
+            from app.services.notification_service import NotificationService
+            from app.services.email_service import EmailService
+            from app.supabase_client import get_supabase_client
             
-        return SupabaseService.insert("tasks", payload)
+            notification_service = NotificationService()
+            email_service = EmailService()
+            client = get_supabase_client()
+            
+            # Get project name
+            project_result = client.table("projects").select("name").eq("id", project_id).execute()
+            project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+            
+            task_id = task_result.get("id")
+            if task_id:
+                for assignee_id in assignee_ids:
+                    # Create in-app notification
+                    notification_service.create_task_assigned_notification(
+                        user_id=assignee_id,
+                        task_id=task_id,
+                        task_title=title,
+                        project_id=project_id
+                    )
+                    
+                    # Send email notification
+                    user_result = client.table("users").select("email, display_name").eq("id", assignee_id).execute()
+                    if user_result.data:
+                        user_data = user_result.data[0]
+                        email_service.send_task_assigned_email(
+                            user_email=user_data.get("email"),
+                            user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
+                            task_title=title,
+                            task_id=task_id,
+                            project_name=project_name
+                        )
+        
+        return task_result
 
     @staticmethod
     def reassign_task(task_id: str, new_project_id: Optional[str]) -> Dict[str, Any]:

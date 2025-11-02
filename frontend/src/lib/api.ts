@@ -335,3 +335,34 @@ export const TeamsAPI = {
     }),
 };
 
+// Notification types and API
+export type Notification = {
+  id: string;
+  user_id: string;
+  type: "task_update" | "mention" | "task_assigned" | "deadline_reminder" | "overdue" | "daily_digest";
+  title: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+  link_url?: string | null;
+  metadata?: Record<string, any>;
+};
+
+export const NotificationsAPI = {
+  // Get notifications for current user
+  list: (limit: number = 20, offset: number = 0, includeRead: boolean = true) =>
+    api<Notification[]>(`/api/notifications?limit=${limit}&offset=${offset}&include_read=${includeRead}`),
+  // Get unread count
+  getUnreadCount: () => api<{ count: number }>("/api/notifications/unread-count"),
+  // Mark notification as read
+  markAsRead: (notificationId: string) =>
+    api<{ message: string }>(`/api/notifications/${notificationId}/read`, {
+      method: "PATCH",
+    }),
+  // Mark all notifications as read
+  markAllAsRead: () =>
+    api<{ message: string }>("/api/notifications/mark-all-read", {
+      method: "PATCH",
+    }),
+};
+

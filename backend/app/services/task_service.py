@@ -9,8 +9,11 @@ from app.models.project import (
 )
 from app.supabase_client import get_supabase_client
 from app.services.project_service import ProjectService
+from app.services.notification_service import NotificationService
+from app.services.email_service import EmailService
 import uuid
 from datetime import datetime
+import re
 
 class TaskService:
     def __init__(self):
@@ -133,12 +136,69 @@ class TaskService:
             if not update_data:
                 return task  # No valid updates provided
 
+            # Check if status changed for notifications
+            old_status = task.status
+            status_changed = 'status' in update_data and update_data['status'] != old_status
+            
+            # Check if assignees changed
+            old_assignees = set(task.assignee_ids or [])
+            new_assignees = set(updates.get('assignee_ids', task.assignee_ids or []))
+            added_assignees = new_assignees - old_assignees
+            
             # Update the task
             result = self.client.table("tasks").update(update_data).eq("id", task_id).execute()
             
             if result.data:
                 # Return the updated task
-                return await self.get_task_by_id(task_id, user_id)
+                updated_task = await self.get_task_by_id(task_id, user_id)
+                
+                # Create notifications for task updates
+                if updated_task:
+                    notification_service = NotificationService()
+                    
+                    # Notify assignees when status changes
+                    if status_changed and updated_task.assignee_ids:
+                        project_result = self.client.table("projects").select("name").eq("id", updated_task.project_id).execute()
+                        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                        
+                        for assignee_id in updated_task.assignee_ids:
+                            if assignee_id != user_id:  # Don't notify the person making the change
+                                notification_service.create_task_update_notification(
+                                    user_id=assignee_id,
+                                    task_id=task_id,
+                                    task_title=updated_task.title,
+                                    old_status=old_status,
+                                    new_status=update_data['status'],
+                                    project_id=updated_task.project_id
+                                )
+                    
+                    # Notify newly assigned users
+                    if added_assignees:
+                        project_result = self.client.table("projects").select("name").eq("id", updated_task.project_id).execute()
+                        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                        
+                        email_service = EmailService()
+                        for assignee_id in added_assignees:
+                            notification_service.create_task_assigned_notification(
+                                user_id=assignee_id,
+                                task_id=task_id,
+                                task_title=updated_task.title,
+                                project_id=updated_task.project_id
+                            )
+                            
+                            # Send email notification
+                            user_result = self.client.table("users").select("email, display_name").eq("id", assignee_id).execute()
+                            if user_result.data:
+                                user_data = user_result.data[0]
+                                email_service.send_task_assigned_email(
+                                    user_email=user_data.get("email"),
+                                    user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
+                                    task_title=updated_task.title,
+                                    task_id=task_id,
+                                    project_name=project_name
+                                )
+                
+                return updated_task
             else:
                 return None
                 
@@ -322,6 +382,62 @@ class TaskService:
                 # Get user info for the response
                 user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
+                commenter_name = user_data.get("display_name") or user_data.get("email", "").split("@")[0]
+                
+                # Check for @mentions in comment
+                mention_pattern = r'@(\w+)'  # Simple pattern, can be improved
+                mentions = re.findall(mention_pattern, comment_data.content)
+                
+                if mentions:
+                    # Get all users to find matches
+                    all_users_result = self.client.table("users").select("id, email, display_name").execute()
+                    users_by_email = {user.get("email", "").split("@")[0]: user for user in all_users_result.data}
+                    users_by_display_name = {user.get("display_name", "").lower(): user for user in all_users_result.data if user.get("display_name")}
+                    
+                    notification_service = NotificationService()
+                    email_service = EmailService()
+                    
+                    project_result = self.client.table("projects").select("name").eq("id", task.project_id).execute()
+                    project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                    
+                    mentioned_user_ids = set()
+                    for mention in mentions:
+                        # Try to match by email username or display name
+                        mentioned_user = None
+                        mention_lower = mention.lower()
+                        
+                        # Check email username
+                        if mention_lower in users_by_email:
+                            mentioned_user = users_by_email[mention_lower]
+                        # Check display name
+                        elif mention_lower in users_by_display_name:
+                            mentioned_user = users_by_display_name[mention_lower]
+                        
+                        if mentioned_user and mentioned_user["id"] != user_id:
+                            mentioned_user_id = mentioned_user["id"]
+                            if mentioned_user_id not in mentioned_user_ids:
+                                mentioned_user_ids.add(mentioned_user_id)
+                                
+                                # Create in-app notification
+                                notification_service.create_mention_notification(
+                                    mentioned_user_id=mentioned_user_id,
+                                    commenter_user_id=user_id,
+                                    commenter_name=commenter_name,
+                                    task_id=task_id,
+                                    task_title=task.title,
+                                    comment_preview=comment_data.content[:200],
+                                    project_id=task.project_id
+                                )
+                                
+                                # Send email notification
+                                email_service.send_mention_email(
+                                    user_email=mentioned_user.get("email"),
+                                    user_name=mentioned_user.get("display_name") or mentioned_user.get("email", "").split("@")[0],
+                                    commenter_name=commenter_name,
+                                    task_title=task.title,
+                                    task_id=task_id,
+                                    comment_preview=comment_data.content[:200]
+                                )
                 
                 return CommentOut(
                     id=comment_id,
@@ -331,7 +447,7 @@ class TaskService:
                     content=comment_data.content,
                     created_at=comment_record["created_at"],
                     user_email=user_data.get("email"),
-                    user_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
+                    user_display_name=commenter_name
                 )
             else:
                 raise Exception("Failed to create comment")

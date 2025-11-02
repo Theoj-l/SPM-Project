@@ -4,19 +4,34 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.routers import health, api_router
 from app.routers import tasks
 from app.middleware import LoggingMiddleware
+from app.services.scheduler_service import SchedulerService
 
-# Create FastAPI app
+# Initialize scheduler
+scheduler_service = SchedulerService()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    scheduler_service.start()
+    yield
+    # Shutdown
+    scheduler_service.stop()
+
+# Create FastAPI app with lifespan handler
 app = FastAPI(
     title=settings.title,
     description=settings.description,
     version=settings.version,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Add middleware

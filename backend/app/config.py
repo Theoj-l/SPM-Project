@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
     
+    # Resend Email settings
+    resend_api_key: str = ""
+    resend_from_email: str = ""
+    
     # API settings
     api_prefix: str = "/api"
     title: str = "SPM Backend API"
