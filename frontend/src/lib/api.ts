@@ -91,6 +91,9 @@ export const ProjectsAPI = {
     api(`/api/projects/${projectId}/restore`, {
       method: "PATCH",
     }),
+  // Get projects for a specific user
+  getUserProjects: (userId: string, includeArchived: boolean = false) =>
+    api<Project[]>(`/api/projects/user/${userId}${includeArchived ? '?include_archived=true' : ''}`),
 };
 
 export const UsersAPI = {

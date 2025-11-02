@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { toast } from "sonner";
+import { API_BASE } from "@/lib/api";
 
 interface User {
   id: string;
@@ -128,7 +129,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       // Verify token with backend
-      const response = await fetch("http://localhost:5000/api/auth/me", {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -179,15 +180,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return false;
       }
 
-      const response = await fetch(
-        "http://localhost:5000/api/auth/user-roles",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/auth/user-roles`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -220,8 +218,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5000";
       const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: "POST",
         headers: {
@@ -304,7 +300,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error: any) {
       console.error("Login error:", error);
-      toast.error(error?.message || "Login failed");
+      // Handle network errors (failed to fetch)
+      if (
+        error?.message?.includes("Failed to fetch") ||
+        error?.name === "TypeError"
+      ) {
+        toast.error(
+          "Cannot connect to server. Please ensure the backend is running."
+        );
+      } else {
+        toast.error(error?.message || "Login failed");
+      }
       return false;
     }
   };
@@ -377,7 +383,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return false;
       }
 
-      const response = await fetch("http://localhost:5000/api/auth/refresh", {
+      const response = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

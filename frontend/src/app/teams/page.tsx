@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { TeamsAPI, Team, TeamMember, UsersAPI, User } from "@/lib/api";
+import { TeamsAPI, Team, TeamMember, UsersAPI, User, ProjectsAPI, Project } from "@/lib/api";
 import {
   isAdmin,
   hasManagerRole,
@@ -57,6 +58,13 @@ export default function TeamsPage() {
   const [editingMembers, setEditingMembers] = useState(false);
   const [membersToAdd, setMembersToAdd] = useState<string[]>([]);
   const [membersToRemove, setMembersToRemove] = useState<string[]>([]);
+  
+  // Hover state for showing projects
+  const [hoveredMemberId, setHoveredMemberId] = useState<string | null>(null);
+  const [memberProjects, setMemberProjects] = useState<Record<string, Project[]>>({});
+  const [loadingProjects, setLoadingProjects] = useState<Record<string, boolean>>({});
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
 
   // Load teams based on user role
   const loadTeams = async () => {
@@ -102,6 +110,26 @@ export default function TeamsPage() {
       setMembersToRemove([]);
     } catch (e: any) {
       console.error("Failed to load team members:", e);
+    }
+  };
+
+  // Load projects for a member when hovering
+  const loadMemberProjects = async (userId: string) => {
+    // Don't reload if already loaded or loading
+    if (memberProjects[userId] || loadingProjects[userId]) {
+      return;
+    }
+
+    setLoadingProjects((prev) => ({ ...prev, [userId]: true }));
+    try {
+      const projects = await ProjectsAPI.getUserProjects(userId, false);
+      setMemberProjects((prev) => ({ ...prev, [userId]: projects }));
+    } catch (e: any) {
+      console.error("Failed to load member projects:", e);
+      // Set empty array on error
+      setMemberProjects((prev) => ({ ...prev, [userId]: [] }));
+    } finally {
+      setLoadingProjects((prev) => ({ ...prev, [userId]: false }));
     }
   };
 
@@ -532,9 +560,23 @@ export default function TeamsPage() {
       {/* Teams List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {getFilteredTeams().map((team) => (
-          <div key={team.id} className="border bg-card rounded-lg p-4">
+          <div 
+            key={team.id} 
+            className={`border bg-card rounded-lg p-4 ${
+              (canManageTeam(team) || canViewTeam(team)) 
+                ? 'cursor-pointer hover:bg-gray-50 transition-colors' 
+                : ''
+            }`}
+            onClick={(e) => {
+              // Only open if clicking on the card itself, not on buttons
+              if ((canManageTeam(team) || canViewTeam(team)) && 
+                  !(e.target as HTMLElement).closest('button')) {
+                setSelectedTeam(team);
+              }
+            }}
+          >
             <div className="flex items-start justify-between mb-3">
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-lg">{team.name}</h3>
                 {team.description && (
                   <p className="text-sm text-muted-foreground mt-1">
@@ -543,7 +585,7 @@ export default function TeamsPage() {
                 )}
               </div>
               {(canManageTeam(team) || canViewTeam(team)) && (
-                <div className="flex gap-1">
+                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -556,7 +598,10 @@ export default function TeamsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => deleteTeam(team.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTeam(team.id);
+                      }}
                       title="Delete team"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -593,7 +638,10 @@ export default function TeamsPage() {
       {/* Team Members Modal */}
       {selectedTeam && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div 
+            ref={modalRef}
+            className="bg-background rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+          >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">
                 {selectedTeam.name} - Members
@@ -810,17 +858,64 @@ export default function TeamsPage() {
                   const isMarkedForRemoval = membersToRemove.includes(
                     member.user_id
                   );
+                  const isHovered = hoveredMemberId === member.user_id;
+                  const projects = memberProjects[member.user_id] || [];
+                  const isLoading = loadingProjects[member.user_id];
+
+                  const showProjectsTooltip = (e: React.MouseEvent<HTMLDivElement>) => {
+                    if (!modalRef.current) return;
+                    
+                    const modalRect = modalRef.current.getBoundingClientRect();
+                    const memberRect = e.currentTarget.getBoundingClientRect();
+                    const tooltipWidth = 256; // w-64 = 16rem = 256px
+                    const spacing = 16;
+                    
+                    // Position to the right of the modal
+                    const x = modalRect.right + spacing;
+                    
+                    // Align vertically with the member card
+                    let y = memberRect.top;
+                    
+                    // Adjust vertical position to stay in viewport
+                    const tooltipMaxHeight = 384; // max-h-96 = 24rem = 384px
+                    if (y + tooltipMaxHeight > window.innerHeight - 20) {
+                      y = window.innerHeight - tooltipMaxHeight - 20;
+                    }
+                    if (y < 20) {
+                      y = 20;
+                    }
+                    
+                    // If it would overflow on the right, don't show it
+                    if (x + tooltipWidth > window.innerWidth - 20) {
+                      return;
+                    }
+                    
+                    setTooltipPosition({ x, y });
+                    setHoveredMemberId(member.user_id);
+                    loadMemberProjects(member.user_id);
+                  };
 
                   return (
                     <div
                       key={member.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
+                      className={`relative flex items-center justify-between p-3 border rounded-lg transition-colors cursor-pointer hover:bg-gray-100 ${
                         isMarkedForRemoval
                           ? "bg-red-50 border-red-200"
                           : "bg-gray-50 border-gray-200"
                       }`}
+                      onMouseEnter={showProjectsTooltip}
+                      onMouseLeave={() => {
+                        setHoveredMemberId(null);
+                        setTooltipPosition(null);
+                      }}
+                      onClick={(e) => {
+                        // Show projects on click too, but don't trigger if clicking on remove button
+                        if (!(e.target as HTMLElement).closest('button')) {
+                          showProjectsTooltip(e);
+                        }
+                      }}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-1">
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <span className="text-sm font-medium text-blue-600">
                             {(memberUser?.display_name ||
@@ -853,9 +948,10 @@ export default function TeamsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() =>
-                              removeMember(selectedTeam.id, member.user_id)
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeMember(selectedTeam.id, member.user_id);
+                            }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
                             <UserMinus className="h-4 w-4" />
@@ -869,6 +965,52 @@ export default function TeamsPage() {
           </div>
         </div>
       )}
+
+      {/* Projects Tooltip Portal - Rendered outside modal */}
+      {hoveredMemberId && tooltipPosition && typeof window !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed z-[100] w-64 bg-white border border-gray-200 rounded-lg shadow-xl p-3 max-h-96 overflow-y-auto"
+            style={{
+              left: `${tooltipPosition.x}px`,
+              top: `${tooltipPosition.y}px`,
+              maxWidth: '280px',
+            }}
+            onMouseEnter={() => setHoveredMemberId(hoveredMemberId)}
+            onMouseLeave={() => {
+              setHoveredMemberId(null);
+              setTooltipPosition(null);
+            }}
+          >
+            <div className="text-sm font-semibold mb-2 text-gray-700">
+              Projects ({memberProjects[hoveredMemberId]?.length || 0})
+            </div>
+            {loadingProjects[hoveredMemberId] ? (
+              <div className="text-xs text-gray-500 py-2">Loading...</div>
+            ) : (memberProjects[hoveredMemberId] || []).length === 0 ? (
+              <div className="text-xs text-gray-500 py-2">No projects</div>
+            ) : (
+              <div className="space-y-1.5">
+                {memberProjects[hoveredMemberId].map((project) => (
+                  <div
+                    key={project.id}
+                    className="text-xs p-2 bg-gray-50 rounded border border-gray-100 hover:bg-blue-50 transition-colors"
+                  >
+                    <div className="font-medium text-gray-900">
+                      {project.name}
+                    </div>
+                    {project.user_role && (
+                      <div className="text-gray-500 mt-0.5">
+                        Role: {project.user_role}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

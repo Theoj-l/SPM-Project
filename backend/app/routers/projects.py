@@ -282,3 +282,38 @@ def restore_project(project_id: str, user_id: str = Depends(get_current_user_id)
         return {"message": "Project restored successfully"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
+@router.get("/user/{target_user_id}", response_model=List[ProjectOut])
+def get_user_projects(target_user_id: str, user_id: str = Depends(get_current_user_id), include_archived: bool = False):
+    """Get projects for a specific user (admins, managers, or team managers can view)"""
+    # Check if current user has permission to view other user's projects
+    user_roles = ProjectService.get_user_roles(user_id)
+    
+    # Admins can view anyone's projects
+    if "admin" in user_roles:
+        return ProjectService.list_for_user(target_user_id, include_archived)
+    
+    # Managers can view anyone's projects
+    if "manager" in user_roles:
+        return ProjectService.list_for_user(target_user_id, include_archived)
+    
+    # Users can only view their own projects
+    if target_user_id == user_id:
+        return ProjectService.list_for_user(target_user_id, include_archived)
+    
+    # Check if users are in the same team
+    from app.services.team_service import TeamService
+    user_teams = TeamService.list_teams_for_user(user_id)
+    target_user_teams = TeamService.list_teams_for_user(target_user_id)
+    
+    # If they share a team, allow viewing (for team collaboration)
+    user_team_ids = {team["id"] for team in user_teams}
+    target_team_ids = {team["id"] for team in target_user_teams}
+    
+    if user_team_ids & target_team_ids:  # If there's any overlap
+        return ProjectService.list_for_user(target_user_id, include_archived)
+    
+    raise HTTPException(
+        status_code=403,
+        detail="Access denied: You don't have permission to view this user's projects"
+    )
