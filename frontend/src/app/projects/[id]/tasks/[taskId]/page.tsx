@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import AssigneeSelector from "@/components/AssigneeSelector";
 
 // Recursive Comment Component
@@ -200,6 +201,21 @@ export default function TaskDetailPage() {
   // Sub-task modal state
   const [showSubTaskModal, setShowSubTaskModal] = useState(false);
   const [creatingSubTask, setCreatingSubTask] = useState(false);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant?: "default" | "destructive";
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    variant: "default",
+  });
 
   // Edit form state
   const [editForm, setEditForm] = useState({
@@ -635,9 +651,13 @@ export default function TaskDetailPage() {
           {canArchiveTask() && (
             <button
               onClick={() => {
-                if (confirm("Are you sure you want to archive this task?")) {
-                  archiveTask();
-                }
+                setConfirmDialog({
+                  isOpen: true,
+                  title: "Archive Task",
+                  description: `Are you sure you want to archive "${task?.title || "this task"}"?`,
+                  variant: "default",
+                  onConfirm: () => archiveTask(),
+                });
               }}
               className="p-2 hover:bg-orange-100 rounded-md transition-colors text-orange-600"
               title="Archive task"
@@ -1073,6 +1093,17 @@ export default function TaskDetailPage() {
         onSubmit={addSubtask}
         projectMembers={projectMembers}
         loading={creatingSubTask}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        confirmText="Confirm"
       />
     </div>
   );

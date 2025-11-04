@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Select,
   SelectContent,
@@ -65,6 +66,21 @@ export default function TeamsPage() {
   const [loadingProjects, setLoadingProjects] = useState<Record<string, boolean>>({});
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant?: "default" | "destructive";
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    variant: "default",
+  });
 
   // Load teams based on user role
   const loadTeams = async () => {
@@ -246,15 +262,21 @@ export default function TeamsPage() {
   };
 
   // Delete team
-  const deleteTeam = async (teamId: string) => {
-    if (!confirm("Are you sure you want to delete this team?")) return;
-
-    try {
-      await TeamsAPI.delete(teamId);
-      await loadTeams();
-    } catch (e: any) {
-      setError(e.message || "Failed to delete team");
-    }
+  const deleteTeam = (teamId: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Team",
+      description: "Are you sure you want to delete this team? This action cannot be undone.",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await TeamsAPI.delete(teamId);
+          await loadTeams();
+        } catch (e: any) {
+          setError(e.message || "Failed to delete team");
+        }
+      },
+    });
   };
 
   // Add member to team
@@ -275,15 +297,31 @@ export default function TeamsPage() {
   };
 
   // Remove member from team
-  const removeMember = async (teamId: string, userId: string) => {
-    if (!confirm("Are you sure you want to remove this member?")) return;
-
-    try {
-      await TeamsAPI.removeMember(teamId, userId);
-      await loadTeamMembers(teamId);
-    } catch (e: any) {
-      setError(e.message || "Failed to remove member");
+  const removeMember = (teamId: string, userId: string) => {
+    // Prevent team manager from removing themselves
+    const member = teamMembers.find((m) => m.user_id === userId);
+    if (member?.role === "manager" && user?.id === userId) {
+      setError("Team managers cannot remove themselves from the team");
+      return;
     }
+    
+    const memberUser = users.find((u) => u.id === userId);
+    const memberName = memberUser?.display_name || memberUser?.email || "this member";
+    
+    setConfirmDialog({
+      isOpen: true,
+      title: "Remove Member",
+      description: `Are you sure you want to remove ${memberName} from this team?`,
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await TeamsAPI.removeMember(teamId, userId);
+          await loadTeamMembers(teamId);
+        } catch (e: any) {
+          setError(e.message || "Failed to remove member");
+        }
+      },
+    });
   };
 
   // Get filtered teams
@@ -666,8 +704,8 @@ export default function TeamsPage() {
                       size="sm"
                       variant="outline"
                     >
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit Members
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Add Members
                     </Button>
                   ) : (
                     <div className="flex gap-2">
@@ -762,57 +800,6 @@ export default function TeamsPage() {
                             );
                           })}
                         </div>
-                      )}
-                    </div>
-
-                    {/* Remove Members Section */}
-                    <div>
-                      <Label className="text-sm font-medium">
-                        Remove Members
-                      </Label>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Click on members below to mark them for removal.
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {teamMembers.map((member) => {
-                          const memberUser = users.find(
-                            (u) => u.id === member.user_id
-                          );
-                          const isMarkedForRemoval = membersToRemove.includes(
-                            member.user_id
-                          );
-
-                          return (
-                            <div
-                              key={member.user_id}
-                              className={`flex items-center gap-1 px-2 py-1 rounded-md text-sm cursor-pointer transition-colors ${
-                                isMarkedForRemoval
-                                  ? "bg-red-100 text-red-800 border border-red-200"
-                                  : "bg-gray-100 text-gray-800 hover:bg-red-50 border border-gray-200"
-                              }`}
-                              onClick={() => {
-                                if (isMarkedForRemoval) {
-                                  removeMemberFromRemoveList(member.user_id);
-                                } else {
-                                  addMemberToRemoveList(member.user_id);
-                                }
-                              }}
-                            >
-                              <span>
-                                {memberUser?.display_name ||
-                                  memberUser?.email ||
-                                  member.user_id}
-                              </span>
-                              <span className="text-xs">({member.role})</span>
-                              {isMarkedForRemoval && <X className="h-3 w-3" />}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {teamMembers.length === 0 && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          No members to remove.
-                        </p>
                       )}
                     </div>
                   </div>
@@ -1011,6 +998,17 @@ export default function TeamsPage() {
           </div>,
           document.body
         )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        confirmText={confirmDialog.variant === "destructive" ? "Delete" : "Confirm"}
+      />
     </div>
   );
 }

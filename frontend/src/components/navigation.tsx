@@ -5,7 +5,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigationWithLoading } from "@/hooks/useNavigationWithLoading";
 import {
   Home,
   User,
@@ -17,7 +16,7 @@ import {
   ClipboardClock,
   Bell,
   Archive,
-  Users,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,6 +28,7 @@ interface NavigationProps {
 interface NavigationItem {
   href: string;
   label: string;
+  collapsedLabel?: string; // Optional label for collapsed sidebar
   icon: React.ReactNode;
   onClick?: () => void;
 }
@@ -44,10 +44,9 @@ export default function Navigation({ children }: NavigationProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
-  const { navigateWithLoading } = useNavigationWithLoading();
 
-  // Don't show sidebar on login, logout, or reset-password pages
-  if (pathname === "/login" || pathname === "/logout" || pathname === "/reset-password") {
+  // Don't show sidebar on login or logout pages
+  if (pathname === "/login" || pathname === "/logout") {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
 
@@ -98,15 +97,20 @@ export default function Navigation({ children }: NavigationProps) {
           icon: <Bell className="h-4 w-4" />,
         },
         {
-          href: "/teams",
-          label: "Teams",
-          icon: <Users className="h-4 w-4" />,
-        },
-        {
           href: "/archived",
           label: "Archived",
           icon: <Archive className="h-4 w-4" />,
         },
+        // Only show Accounts Management for admin users below Archived
+        ...(isAdmin
+          ? [
+              {
+                href: "/accounts-management",
+                label: "Accounts Management",
+                icon: <Shield className="h-4 w-4" />,
+              },
+            ]
+          : []),
       ] as NavigationItem[],
     },
   ];
@@ -232,39 +236,40 @@ export default function Navigation({ children }: NavigationProps) {
 
                 {/* Group Items: Always visible, consistent spacing */}
                 {group.items.map((item) => (
-                  <div
-                    key={item.href}
-                    className={cn(
-                      // Base item styles: flex layout with hover effects and smooth transitions
-                      "flex items-center rounded-md py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:bg-accent hover:text-accent-foreground cursor-pointer",
-                      // Gap: only when expanded, no gap when collapsed
-                      isCollapsed ? "" : "gap-3",
-                      // Active state: highlighted background and text color
-                      isActive(item.href) && "bg-accent text-accent-foreground",
-                      // Padding: no horizontal padding when collapsed, normal padding when expanded
-                      isCollapsed ? "justify-center" : "px-3"
-                    )}
-                    onClick={() => {
-                      setIsMobileOpen(false);
-                      navigateWithLoading(item.href);
-                    }}
-                  >
-                    {/* Icon Container: Always visible, flex-shrink-0 prevents icon from shrinking */}
-                    <div className="flex-shrink-0">{item.icon}</div>
-
-                    {/* Text Label: Fades out and collapses when sidebar is collapsed */}
-                    <span
+                  <Link key={item.href} href={item.href}>
+                    <div
                       className={cn(
-                        "transition-all duration-300 ease-in-out",
-                        // Hide text when collapsed: opacity 0, width 0, overflow hidden
-                        isCollapsed
-                          ? "opacity-0 w-0 overflow-hidden"
-                          : "opacity-100"
+                        // Base item styles: flex layout with hover effects and smooth transitions
+                        "flex items-center rounded-md py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                        // Gap: only when expanded, no gap when collapsed
+                        isCollapsed ? "" : "gap-3",
+                        // Active state: highlighted background and text color
+                        isActive(item.href) &&
+                          "bg-accent text-accent-foreground",
+                        // Padding: no horizontal padding when collapsed, normal padding when expanded
+                        isCollapsed ? "justify-center" : "px-3"
                       )}
+                      onClick={() => setIsMobileOpen(false)}
                     >
-                      {item.label}
-                    </span>
-                  </div>
+                      {/* Icon Container: Always visible, flex-shrink-0 prevents icon from shrinking */}
+                      <div className="flex-shrink-0">{item.icon}</div>
+
+                      {/* Text Label: Fades out and collapses when sidebar is collapsed */}
+                      <span
+                        className={cn(
+                          "transition-all duration-300 ease-in-out truncate min-w-0",
+                          // Hide text when collapsed (unless collapsedLabel exists): opacity 0, width 0, overflow hidden
+                          isCollapsed && !item.collapsedLabel
+                            ? "opacity-0 w-0 overflow-hidden"
+                            : "opacity-100"
+                        )}
+                      >
+                        {item.collapsedLabel && isCollapsed
+                          ? item.collapsedLabel
+                          : item.label}
+                      </span>
+                    </div>
+                  </Link>
                 ))}
               </div>
             ))}
@@ -296,8 +301,6 @@ export default function Navigation({ children }: NavigationProps) {
                     setIsMobileOpen(false);
                     if (item.onClick) {
                       item.onClick();
-                    } else if (item.href !== "#") {
-                      navigateWithLoading(item.href);
                     }
                   };
 
@@ -322,14 +325,16 @@ export default function Navigation({ children }: NavigationProps) {
                       {/* Text Label: Fades out and collapses when sidebar is collapsed */}
                       <span
                         className={cn(
-                          "transition-all duration-300 ease-in-out",
-                          // Hide text when collapsed: opacity 0, width 0, overflow hidden
-                          isCollapsed
+                          "transition-all duration-300 ease-in-out truncate min-w-0",
+                          // Hide text when collapsed (unless collapsedLabel exists): opacity 0, width 0, overflow hidden
+                          isCollapsed && !item.collapsedLabel
                             ? "opacity-0 w-0 overflow-hidden"
                             : "opacity-100"
                         )}
                       >
-                        {item.label}
+                        {item.collapsedLabel && isCollapsed
+                          ? item.collapsedLabel
+                          : item.label}
                       </span>
                     </div>
                   );
@@ -337,7 +342,9 @@ export default function Navigation({ children }: NavigationProps) {
                   return item.href === "#" ? (
                     <div key={item.label}>{content}</div>
                   ) : (
-                    <div key={item.href}>{content}</div>
+                    <Link key={item.href} href={item.href}>
+                      {content}
+                    </Link>
                   );
                 })}
               </div>

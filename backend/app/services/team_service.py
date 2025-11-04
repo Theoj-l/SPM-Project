@@ -307,6 +307,16 @@ class TeamService:
         if not can_remove:
             raise PermissionError("Access denied: Only team managers or team members can remove members")
         
+        # Prevent team manager from removing themselves
+        target_member = SupabaseService.select(
+            "team_members",
+            filters={"team_id": team_id, "user_id": member_user_id}
+        )
+        if target_member and len(target_member) > 0:
+            target_role = target_member[0].get("role")
+            if target_role == "manager" and member_user_id == user_id:
+                raise ValueError("Team managers cannot remove themselves from the team")
+        
         # Remove member
         result = SupabaseService.delete(
             "team_members",

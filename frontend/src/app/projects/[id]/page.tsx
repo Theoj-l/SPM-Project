@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -73,6 +74,21 @@ export default function ProjectDetailPage() {
 
   // Project members visibility state
   const [showProjectMembers, setShowProjectMembers] = useState(false);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant?: "default" | "destructive";
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    variant: "default",
+  });
 
   // Load project details
   const loadProject = async () => {
@@ -900,13 +916,13 @@ export default function ProjectDetailPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (
-                            confirm(
-                              "Are you sure you want to archive this task?"
-                            )
-                          ) {
-                            archiveTask(task.id);
-                          }
+                          setConfirmDialog({
+                            isOpen: true,
+                            title: "Archive Task",
+                            description: `Are you sure you want to archive "${task.title}"?`,
+                            variant: "default",
+                            onConfirm: () => archiveTask(task.id),
+                          });
                         }}
                         className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
                         title="Archive task"
@@ -929,6 +945,17 @@ export default function ProjectDetailPage() {
         onSubmit={createTask}
         users={users}
         isLoading={creatingTask}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        confirmText="Confirm"
       />
     </div>
   );

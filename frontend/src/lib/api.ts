@@ -369,3 +369,24 @@ export const NotificationsAPI = {
     }),
 };
 
+// Account lockout types and API
+export type LockedAccount = {
+  email: string;
+  locked_until: string;
+  locked_at: string;
+  lockout_reason?: string;
+};
+
+export const AuthAPI = {
+  // Get list of all locked accounts (admin only)
+  listLockedAccounts: () => {
+    return api<{ success: boolean; data: { accounts: LockedAccount[] } }>("/api/auth/locked-accounts");
+  },
+  // Unlock an account by email (admin only)
+  unlockAccount: (email: string) =>
+    api<{ success: boolean; message: string }>("/api/auth/unlock-account", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+};
+

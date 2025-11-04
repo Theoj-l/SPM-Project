@@ -82,6 +82,8 @@ def remove_team_member(team_id: str, member_user_id: str, user_id: str = Depends
         return {"message": "Member removed successfully"}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{team_id}/members", response_model=List[TeamMemberOut])
 def get_team_members(team_id: str, user_id: str = Depends(get_current_user_id)):

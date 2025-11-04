@@ -17,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import Link from "next/link";
 
 export default function ArchivedPage() {
@@ -28,6 +29,21 @@ export default function ArchivedPage() {
   const [error, setError] = useState("");
   const [restoringTask, setRestoringTask] = useState<string | null>(null);
   const [restoringProject, setRestoringProject] = useState<string | null>(null);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant?: "default" | "destructive";
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    variant: "default",
+  });
 
   // Load archived projects and tasks
   const loadArchivedData = async () => {
@@ -236,13 +252,13 @@ export default function ArchivedPage() {
                           </Link>
                           <button
                             onClick={() => {
-                              if (
-                                confirm(
-                                  "Are you sure you want to restore this project?"
-                                )
-                              ) {
-                                restoreProject(project.id);
-                              }
+                              setConfirmDialog({
+                                isOpen: true,
+                                title: "Restore Project",
+                                description: `Are you sure you want to restore "${project.name}"?`,
+                                variant: "default",
+                                onConfirm: () => restoreProject(project.id),
+                              });
                             }}
                             disabled={restoringProject === project.id}
                             className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -336,13 +352,13 @@ export default function ArchivedPage() {
                           </Link>
                           <button
                             onClick={() => {
-                              if (
-                                confirm(
-                                  "Are you sure you want to restore this task?"
-                                )
-                              ) {
-                                restoreTask(task.id);
-                              }
+                              setConfirmDialog({
+                                isOpen: true,
+                                title: "Restore Task",
+                                description: `Are you sure you want to restore "${task.title}"?`,
+                                variant: "default",
+                                onConfirm: () => restoreTask(task.id),
+                              });
                             }}
                             disabled={restoringTask === task.id}
                             className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -375,6 +391,17 @@ export default function ArchivedPage() {
           </div>
         )}
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        confirmText="Confirm"
+      />
     </div>
   );
 }

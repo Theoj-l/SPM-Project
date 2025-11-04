@@ -7,6 +7,7 @@ from app.models.base import BaseResponse
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
 from app.services.lockout_service import LockoutService
+from app.services.supabase_service import SupabaseService
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -573,4 +574,82 @@ async def unlock_account(request: UnlockAccountRequest, http_request: Request, a
         raise HTTPException(
             status_code=500,
             detail=f"Failed to unlock account: {str(e)}"
+        )
+
+
+@router.get("/locked-accounts", response_model=BaseResponse)
+async def list_locked_accounts(authorization: str = Header(None)):
+    """
+    Get list of all locked accounts (admin only).
+    
+    Args:
+        authorization: Bearer token from Authorization header
+        
+    Returns:
+        List of locked accounts with their details
+    """
+    try:
+        # Check authorization
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail="Missing or invalid authorization header"
+            )
+        
+        access_token = authorization.split(" ")[1]
+        admin_user_data = AuthService.get_user(access_token)
+        
+        if not admin_user_data:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired token"
+            )
+        
+        admin_email = admin_user_data.get("email")
+        if not admin_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Admin email not found"
+            )
+        
+        # Check if current user is admin
+        admin_user = UserService.get_user_by_email(admin_email)
+        if not admin_user:
+            raise HTTPException(
+                status_code=404,
+                detail="Admin user not found"
+            )
+        
+        admin_roles = admin_user.get("roles", [])
+        if "admin" not in admin_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin role required"
+            )
+        
+        # Get all locked accounts
+        try:
+            locked_accounts = SupabaseService.select("account_lockouts", "*")
+        except Exception as db_error:
+            print(f"Database error fetching locked accounts: {str(db_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {str(db_error)}"
+            )
+        
+        return BaseResponse(
+            success=True,
+            message="Locked accounts retrieved successfully",
+            data={"accounts": locked_accounts}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in list_locked_accounts: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve locked accounts: {str(e)}"
         )
