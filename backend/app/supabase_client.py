@@ -1,13 +1,18 @@
 """Supabase client configuration."""
 
 from supabase import create_client, Client
+from supabase.client import ClientOptions
 from app.config import settings
 import httpx
 
 _supabase_client: Client = None
 
 def get_supabase_client() -> Client:
-    """Get Supabase client instance (lazy initialization). Uses service role key to bypass RLS."""
+    """Get Supabase client instance (lazy initialization). Uses service role key to bypass RLS.
+    
+    The client is a singleton, which means connection pooling happens automatically at the httpx level.
+    The supabase-py library creates its own httpx.Client internally with connection pooling enabled.
+    """
     global _supabase_client
     
     if _supabase_client is None:
@@ -19,20 +24,24 @@ def get_supabase_client() -> Client:
         if not url or not key:
             raise ValueError("Supabase URL and key must be set in environment variables")
         
-        # Create HTTP client with timeout to prevent hanging requests
-        # Default timeout: 10 seconds for connect, 30 seconds for read
-        timeout = httpx.Timeout(10.0, read=30.0)
-        http_client = httpx.Client(timeout=timeout)
-        
-        # Create Supabase client with custom HTTP client
-        # Note: The supabase-py library may not directly support passing http_client
-        # So we'll create the client normally and handle timeouts at the application level
+        # Create Supabase client with optimized timeouts
+        # The supabase-py library uses httpx internally with connection pooling enabled by default
+        # We configure timeouts to prevent hanging requests
         try:
-            # Try to create client with options if supported
-            _supabase_client = create_client(url, key)
+            options = ClientOptions(
+                auto_refresh_token=False,  # We handle token refresh manually
+                persist_session=False,  # Don't persist sessions in backend
+                postgrest_client_timeout=httpx.Timeout(10.0, read=30.0, connect=5.0),  # Optimized timeouts for PostgREST
+                storage_client_timeout=httpx.Timeout(20.0, read=60.0, connect=5.0)  # Longer timeout for storage operations
+            )
+            _supabase_client = create_client(url, key, options)
         except Exception as e:
-            print(f"Error creating Supabase client: {e}")
-            # Fallback to basic client creation
-            _supabase_client = create_client(url, key)
+            print(f"Error creating Supabase client with options: {e}")
+            # Fallback: try without options (older API)
+            try:
+                _supabase_client = create_client(url, key)
+            except Exception as e2:
+                print(f"Error creating Supabase client: {e2}")
+                raise
     
     return _supabase_client

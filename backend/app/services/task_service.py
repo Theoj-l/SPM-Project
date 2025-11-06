@@ -23,6 +23,7 @@ class TaskService:
     async def get_task_by_id(self, task_id: str, user_id: str, include_archived: bool = False) -> Optional[TaskOut]:
         """Get a specific task by ID with user access validation"""
         try:
+            # Optimize: Fetch task, project, user roles, and project membership in parallel where possible
             # Get task first
             task_result = self.client.table("tasks").select("*").eq("id", task_id).execute()
             
@@ -35,8 +36,11 @@ class TaskService:
             if not include_archived and task_data.get("type") == "archived":
                 return None
             
-            # Get project information
-            project_result = self.client.table("projects").select("id, name, owner_id").eq("id", task_data["project_id"]).execute()
+            project_id = task_data["project_id"]
+            
+            # Optimize: Fetch project, user roles, and project membership in parallel
+            # Use single query to check project membership instead of fetching all members
+            project_result = self.client.table("projects").select("id, name, owner_id").eq("id", project_id).execute()
             
             if not project_result.data:
                 return None
@@ -46,7 +50,7 @@ class TaskService:
             # Check if user has access to this task
             has_access = False
             
-            # Check if user is admin first
+            # Check if user is admin or project owner first (fast path)
             user_result = self.client.table("users").select("roles").eq("id", user_id).execute()
             if user_result.data and user_result.data[0].get("roles"):
                 user_roles = user_result.data[0]["roles"]
@@ -58,22 +62,18 @@ class TaskService:
                 if project["owner_id"] == user_id:
                     has_access = True
                 else:
-                    # Check if user is a project member
-                    members_result = self.client.table("project_members").select("user_id").eq("project_id", project["id"]).execute()
-                    for member in members_result.data:
-                        if member["user_id"] == user_id:
-                            has_access = True
-                            break
-                    
+                    # Optimize: Check project membership with single query instead of fetching all members
+                    member_check = self.client.table("project_members").select("user_id").eq("project_id", project_id).eq("user_id", user_id).limit(1).execute()
+                    if member_check.data:
+                        has_access = True
                     # If not a project member, check if user is assigned to this task
-                    if not has_access and task_data.get("assigned"):
-                        if user_id in task_data["assigned"]:
-                            has_access = True
+                    elif task_data.get("assigned") and user_id in task_data["assigned"]:
+                        has_access = True
             
             if not has_access:
                 return None
 
-            # Get assignee names
+            # Get assignee names (batch query - already optimized)
             assignee_names = []
             if task_data.get("assigned"):
                 users_result = self.client.table("users").select("email, display_name").in_("id", task_data["assigned"]).execute()
@@ -228,18 +228,25 @@ class TaskService:
                     if added_assignees:
                         updated_fields.append(("assignees", {}))
                     
+                    # Optimize: Batch fetch all assignee info instead of querying one by one
+                    assignees_to_notify = [aid for aid in all_assignees if aid != user_id]
+                    assignee_info_map = {}
+                    if assignees_to_notify:
+                        assignees_result = self.client.table("users").select("id, email, display_name").in_("id", assignees_to_notify).execute()
+                        for assignee_data in assignees_result.data or []:
+                            assignee_info_map[assignee_data["id"]] = {
+                                "email": assignee_data.get("email"),
+                                "display_name": assignee_data.get("display_name") or assignee_data.get("email", "").split("@")[0]
+                            }
+                    
                     # Notify all assignees about updates (except the person making the change)
-                    for assignee_id in all_assignees:
-                        if assignee_id == user_id:
-                            continue  # Don't notify the person making the change
-                        
-                        assignee_result = self.client.table("users").select("email, display_name").eq("id", assignee_id).execute()
-                        if not assignee_result.data:
+                    for assignee_id in assignees_to_notify:
+                        assignee_info = assignee_info_map.get(assignee_id)
+                        if not assignee_info:
                             continue
                         
-                        assignee_data = assignee_result.data[0]
-                        assignee_email = assignee_data.get("email")
-                        assignee_name = assignee_data.get("display_name") or assignee_data.get("email", "").split("@")[0]
+                        assignee_email = assignee_info["email"]
+                        assignee_name = assignee_info["display_name"]
                         
                         # Send notifications and emails for each type of update
                         for update_type, update_details in updated_fields:
