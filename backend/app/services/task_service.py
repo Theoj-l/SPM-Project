@@ -994,7 +994,7 @@ class TaskService:
                     created_at=file_data["created_at"],
                     download_url=file_data.get("download_url"),
                     uploader_email=user_data.get("email"),
-                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 ))
             
             return files
@@ -1030,7 +1030,7 @@ class TaskService:
                     created_at=file_data["created_at"],
                     download_url=file_data.get("download_url"),
                     uploader_email=user_data.get("email"),
-                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 ))
             
             return files
@@ -1054,6 +1054,31 @@ class TaskService:
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })
+                
+                # Check if upload_result is a Response-like object with error attribute
+                if hasattr(upload_result, 'error') and upload_result.error:
+                    error_data = upload_result.error
+                    if isinstance(error_data, dict):
+                        error_msg = error_data.get("message", str(error_data))
+                    else:
+                        error_msg = str(error_data)
+                    
+                    if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                        raise Exception(
+                            "Storage bucket 'task_file' not found. "
+                            "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        )
+                    # Check for RLS errors
+                    if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                        raise Exception(
+                            f"Storage RLS policy violation: {error_msg}. "
+                            "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                            "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                            "2) Storage bucket RLS policies allow service role uploads, "
+                            "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
+                        )
+                    raise Exception(f"Failed to upload file to storage: {error_msg}")
+                    
             except Exception as e:
                 error_msg = str(e)
                 if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
@@ -1061,16 +1086,16 @@ class TaskService:
                         "Storage bucket 'task_file' not found. "
                         "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
                     )
-                raise Exception(f"Failed to upload file to storage: {error_msg}")
-
-            if upload_result.get("error"):
-                error_data = upload_result["error"]
-                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                # Check for RLS errors in exception
+                if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
                     raise Exception(
-                        "Storage bucket 'task_file' not found. "
-                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        f"Storage RLS policy violation: {error_msg}. "
+                        "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                        "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                        "2) Storage bucket RLS policies allow service role uploads, "
+                        "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
                     )
-                raise Exception(f"Failed to upload file: {upload_result['error']}")
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
 
             # Get public URL
             download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
@@ -1107,7 +1132,7 @@ class TaskService:
             
             if result.data:
                 # Get user info for the response
-                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
                 
                 return FileOut(
@@ -1148,6 +1173,31 @@ class TaskService:
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })
+                
+                # Check if upload_result is a Response-like object with error attribute
+                if hasattr(upload_result, 'error') and upload_result.error:
+                    error_data = upload_result.error
+                    if isinstance(error_data, dict):
+                        error_msg = error_data.get("message", str(error_data))
+                    else:
+                        error_msg = str(error_data)
+                    
+                    if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                        raise Exception(
+                            "Storage bucket 'task_file' not found. "
+                            "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        )
+                    # Check for RLS errors
+                    if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                        raise Exception(
+                            f"Storage RLS policy violation: {error_msg}. "
+                            "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                            "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                            "2) Storage bucket RLS policies allow service role uploads, "
+                            "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
+                        )
+                    raise Exception(f"Failed to upload file to storage: {error_msg}")
+                    
             except Exception as e:
                 error_msg = str(e)
                 if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
@@ -1155,16 +1205,16 @@ class TaskService:
                         "Storage bucket 'task_file' not found. "
                         "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
                     )
-                raise Exception(f"Failed to upload file to storage: {error_msg}")
-
-            if upload_result.get("error"):
-                error_data = upload_result["error"]
-                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                # Check for RLS errors in exception
+                if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
                     raise Exception(
-                        "Storage bucket 'task_file' not found. "
-                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        f"Storage RLS policy violation: {error_msg}. "
+                        "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                        "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                        "2) Storage bucket RLS policies allow service role uploads, "
+                        "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
                     )
-                raise Exception(f"Failed to upload file: {upload_result['error']}")
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
 
             # Get public URL
             download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
@@ -1187,7 +1237,7 @@ class TaskService:
             
             if result.data:
                 # Get user info for the response
-                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
                 
                 return FileOut(

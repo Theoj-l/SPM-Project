@@ -161,6 +161,32 @@ export default function ProjectDetailPage() {
 
       setUsers(memberUsers);
     } catch (err: any) {
+      // Silently handle "User not found" errors - this can happen if the user exists in auth but not in users table
+      const errorMessage = err?.message || String(err);
+      let errorDetail = "";
+      try {
+        // Try to parse JSON error response
+        const parsed = JSON.parse(errorMessage);
+        errorDetail = parsed.detail || "";
+      } catch {
+        // Not JSON, use the message as-is
+        errorDetail = errorMessage;
+      }
+      
+      if (errorDetail.includes("User not found") || errorMessage.includes("User not found")) {
+        // Fallback: if project members fail to load, at least include the current user if they're the owner
+        if (user && project && user.id === project.owner_id) {
+          setUsers([
+            {
+              id: user.id,
+              email: user.email,
+              display_name: user.full_name || undefined,
+              roles: user.roles || [],
+            },
+          ]);
+        }
+        return;
+      }
       console.error("Failed to load project members:", err);
       // Fallback: if project members fail to load, at least include the current user if they're the owner
       if (user && project && user.id === project.owner_id) {
