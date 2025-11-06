@@ -27,9 +27,10 @@ export interface TaskFormData {
   description: string;
   due_date: string;
   notes: string;
-  assignee_ids: string[];
+  assignee_ids?: string[]; // Optional - creator will be added as default assignee
   status: "todo" | "in_progress" | "completed" | "blocked";
-  tags: string[];
+  tags?: string; // Free text with # separator (e.g., "urgent#bug#frontend")
+  priority?: number; // Priority 1-10
   recurring?: {
     enabled: boolean;
     frequency: "daily" | "weekly" | "monthly" | "yearly";
@@ -52,7 +53,8 @@ export default function CreateTaskModal({
     notes: "",
     assignee_ids: [],
     status: "todo",
-    tags: [],
+    tags: "",
+    priority: undefined,
     recurring: {
       enabled: false,
       frequency: "weekly",
@@ -63,12 +65,11 @@ export default function CreateTaskModal({
   const [recurringEndDate, setRecurringEndDate] = useState<Date | undefined>(
     undefined
   );
-  const [tagInput, setTagInput] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleInputChange = (
     field: keyof TaskFormData,
-    value: string | string[]
+    value: string | string[] | number | undefined
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -84,30 +85,7 @@ export default function CreateTaskModal({
     }
   };
 
-  const addTag = () => {
-    const tag = tagInput.trim();
-    if (tag && !formData.tags.includes(tag) && formData.tags.length < 5) {
-      setFormData((prev) => ({
-        ...prev,
-        tags: [...prev.tags, tag],
-      }));
-      setTagInput("");
-    }
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      tags: prev.tags.filter((tag) => tag !== tagToRemove),
-    }));
-  };
-
-  const handleTagKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addTag();
-    }
-  };
+  // Tags are now handled as free text with # separator
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -116,8 +94,15 @@ export default function CreateTaskModal({
       newErrors.title = "Title is required";
     }
 
+    // Assignees are optional - creator will be added as default
+
     if (dueDate && dueDate < new Date(new Date().setHours(0, 0, 0, 0))) {
       newErrors.due_date = "Due date cannot be in the past";
+    }
+
+    // Validate recurring tasks require end date
+    if (formData.recurring?.enabled && !recurringEndDate) {
+      newErrors.recurring = "End date is required for recurring tasks";
     }
 
     setErrors(newErrors);
@@ -144,6 +129,13 @@ export default function CreateTaskModal({
             }
           : undefined,
       };
+
+      // Double-check recurring end date before submission
+      if (taskData.recurring?.enabled && !taskData.recurring.end_date) {
+        setErrors({ recurring: "End date is required for recurring tasks" });
+        return;
+      }
+
       await onSubmit(taskData);
       // Reset form on success
       setFormData({
@@ -153,7 +145,8 @@ export default function CreateTaskModal({
         notes: "",
         assignee_ids: [],
         status: "todo",
-        tags: [],
+        tags: "",
+        priority: undefined,
         recurring: {
           enabled: false,
           frequency: "weekly",
@@ -162,7 +155,6 @@ export default function CreateTaskModal({
       });
       setDueDate(undefined);
       setRecurringEndDate(undefined);
-      setTagInput("");
       setErrors({});
     } catch (error) {
       console.error("Failed to create task:", error);
@@ -177,7 +169,8 @@ export default function CreateTaskModal({
       notes: "",
       assignee_ids: [],
       status: "todo",
-      tags: [],
+      tags: "",
+      priority: undefined,
       recurring: {
         enabled: false,
         frequency: "weekly",
@@ -186,7 +179,6 @@ export default function CreateTaskModal({
     });
     setDueDate(undefined);
     setRecurringEndDate(undefined);
-    setTagInput("");
     setErrors({});
     onClose();
   };
@@ -315,17 +307,27 @@ export default function CreateTaskModal({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <Users className="h-4 w-4 inline mr-1" />
-                Assignees
+                Additional Assignees (Optional)
               </label>
+              <p className="text-xs text-gray-500 mb-2">
+                You will be added as the default assignee. Add more assignees if
+                needed.
+              </p>
               <AssigneeSelector
                 users={users}
-                selectedUserIds={formData.assignee_ids}
+                selectedUserIds={formData.assignee_ids || []}
                 onSelectionChange={(assigneeIds) =>
                   handleInputChange("assignee_ids", assigneeIds)
                 }
                 maxAssignees={5}
-                placeholder="Select project members (optional)"
+                placeholder="Select project members"
               />
+              {errors.assignee_ids && (
+                <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {errors.assignee_ids}
+                </p>
+              )}
               {users.length === 0 && (
                 <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded mt-2">
                   No project members available. Add members to the project first
@@ -357,61 +359,45 @@ export default function CreateTaskModal({
             {/* Tags */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tags ({formData.tags.length}/5)
+                Tags (separated by #)
               </label>
-              <div className="space-y-2">
-                {/* Tag Input */}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyPress={handleTagKeyPress}
-                    placeholder="Add a tag..."
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    disabled={formData.tags.length >= 5}
-                  />
-                  <button
-                    type="button"
-                    onClick={addTag}
-                    disabled={
-                      !tagInput.trim() ||
-                      formData.tags.includes(tagInput.trim()) ||
-                      formData.tags.length >= 5
-                    }
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    Add
-                  </button>
-                </div>
+              <input
+                type="text"
+                value={formData.tags || ""}
+                onChange={(e) => handleInputChange("tags", e.target.value)}
+                placeholder="e.g., urgent#bug#frontend"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Enter tags separated by # (e.g., urgent#bug#frontend)
+              </p>
+            </div>
 
-                {/* Tags Display */}
-                {formData.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {formData.tags.map((tag, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => removeTag(tag)}
-                          className="ml-1 text-blue-600 hover:text-blue-800"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {formData.tags.length >= 5 && (
-                  <p className="text-xs text-gray-500">
-                    Maximum 5 tags allowed
-                  </p>
-                )}
-              </div>
+            {/* Priority */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Priority (1-10)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={formData.priority || ""}
+                onChange={(e) => {
+                  const value =
+                    e.target.value === ""
+                      ? undefined
+                      : parseInt(e.target.value, 10);
+                  if (value === undefined || (value >= 1 && value <= 10)) {
+                    handleInputChange("priority", value);
+                  }
+                }}
+                placeholder="Optional: 1 (lowest) to 10 (highest)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Priority level from 1 (lowest) to 10 (highest)
+              </p>
             </div>
 
             {/* Recurring */}
@@ -517,16 +503,22 @@ export default function CreateTaskModal({
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      End Date (Optional)
+                      End Date *
                     </label>
                     <DatePicker
                       value={recurringEndDate}
                       onChange={setRecurringEndDate}
-                      placeholder="Select end date (leave empty for no end)"
-                      className="w-full"
+                      placeholder="Select end date"
+                      className={errors.recurring ? "border-red-300" : ""}
                     />
+                    {errors.recurring && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                        <AlertCircle className="h-4 w-4" />
+                        {errors.recurring}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-500 mt-1">
-                      Leave empty to create recurring tasks indefinitely
+                      Recurring tasks must have an end date
                     </p>
                   </div>
                 </div>

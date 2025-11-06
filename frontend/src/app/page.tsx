@@ -212,6 +212,22 @@ export default function Home() {
               </div>
             )}
 
+            {/* Quick Search (all users) */}
+            {!((isAdmin(user)) && showAllProjects) && (
+              <div className="p-4 border-b bg-gray-50">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search projects..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2 border rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Admin Filtering Controls */}
             {isAdmin(user) && showAllProjects && (
               <div className="p-4 border-b bg-gray-50">

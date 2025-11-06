@@ -179,16 +179,37 @@ def add_task(project_id: str, payload: TaskCreate, user_id: str = Depends(get_cu
             status_code=403,
             detail="Access denied: You are not a member of this project"
         )
+    
+    # Validate project is active
+    project = ProjectService.get_project_by_id(project_id, user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("status") != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Tasks can only be created in active projects"
+        )
+    
+    # Creator is default assignee - add if not already in list
+    assignee_ids = list(payload.assignee_ids) if payload.assignee_ids else []
+    if user_id not in assignee_ids:
+        assignee_ids.insert(0, user_id)  # Add creator as first assignee
+    
+    # Ensure max 5 assignees total
+    if len(assignee_ids) > 5:
+        assignee_ids = assignee_ids[:5]
+    
     return ProjectService.add_task(
         project_id=project_id, 
         title=payload.title, 
         description=payload.description,
         due_date=payload.due_date,
         notes=payload.notes,
-        assignee_ids=payload.assignee_ids,
+        assignee_ids=assignee_ids,
         status=payload.status,
-        tags=payload.tags,
-        recurring=payload.recurring
+        tags=payload.tags,  # Already parsed as list by validator
+        recurring=payload.recurring,
+        priority=payload.priority
     )
 
 @router.get("/{project_id}/tasks", response_model=List[TaskOut])
@@ -199,7 +220,8 @@ def get_project_tasks(project_id: str, user_id: str = Depends(get_current_user_i
             status_code=403,
             detail="Access denied: You are not a member of this project"
         )
-    return ProjectService.tasks_by_project(project_id, include_archived)
+    # Apply department-based filtering
+    return ProjectService.tasks_by_project(project_id, include_archived, user_id)
 
 @router.patch("/tasks/{task_id}/reassign", response_model=TaskOut)
 def reassign_task(task_id: str, payload: TaskReassign, user_id: str = Depends(get_current_user_id)):
@@ -252,11 +274,22 @@ def update_task_assignees(task_id: str, payload: TaskAssigneeUpdate, user_id: st
             detail="Access denied: You are not a member of this project"
         )
     
-    return ProjectService.update_task_assignees(task_id, payload.assignee_ids)
+    try:
+        updated_task = ProjectService.update_task_assignees(task_id, payload.assignee_ids, user_id)
+        return ProjectService.get_task(task_id)  # Return full task with assignee names
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{project_id}/kanban")
 def kanban(project_id: str, user_id: str = Depends(get_current_user_id)) -> Dict[str, list]:
-    return ProjectService.tasks_grouped_kanban(project_id)
+    return ProjectService.tasks_grouped_kanban(project_id, user_id)
+
+@router.get("/tasks/by-tag/{tag}", response_model=List[TaskOut])
+def get_tasks_by_tag(tag: str, user_id: str = Depends(get_current_user_id), include_archived: bool = False):
+    """Get all tasks with a specific tag, filtered by department access control"""
+    return ProjectService.tasks_by_tag(tag, user_id, include_archived)
 
 @router.get("/archived", response_model=List[ProjectOut])
 def list_archived_projects(user_id: str = Depends(get_current_user_id)):

@@ -1,57 +1,56 @@
-"""Email service using Resend for sending emails."""
+"""Email service using SMTP (Gmail) for sending emails."""
 
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
-import resend
 from app.config import settings
 
 class EmailService:
-    """Service for sending emails via Resend."""
+    """Service for sending emails via SMTP."""
     
     def __init__(self):
-        # Get API key from settings (which loads from .env)
-        self.api_key = settings.resend_api_key or os.getenv("RESEND_API_KEY") or ""
-        # Use Resend's default sending email if no custom email provided
-        # Options: onboarding@resend.dev (for testing) or delivered@resend.dev
-        self.from_email = settings.resend_from_email or os.getenv("RESEND_FROM_EMAIL") or os.getenv("FROM_EMAIL") or "onboarding@resend.dev"
+        # Get SMTP settings from settings (which loads from .env)
+        self.smtp_server = settings.smtp_server or os.getenv("SMTP_SERVER") or "smtp.gmail.com"
+        self.smtp_port = settings.smtp_port or int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_username = settings.smtp_username or os.getenv("SMTP_USERNAME") or ""
+        self.smtp_password = settings.smtp_password or os.getenv("SMTP_PASSWORD") or ""
+        self.from_email = settings.smtp_from_email or os.getenv("SMTP_FROM_EMAIL") or self.smtp_username or ""
         self.frontend_url = settings.frontend_url
         
-        if self.api_key:
-            try:
-                resend.api_key = self.api_key
-            except Exception as e:
-                print(f"Warning: Failed to initialize Resend API key: {e}")
-        else:
-            print("Warning: RESEND_API_KEY not set. Email sending will be disabled.")
+        if not self.smtp_username or not self.smtp_password:
+            print("Warning: SMTP_USERNAME or SMTP_PASSWORD not set. Email sending will be disabled.")
     
     def send_email(self, to_email: str, subject: str, html_content: str, text_content: Optional[str] = None) -> bool:
-        """Send an email using Resend."""
-        if not self.api_key:
+        """Send an email using SMTP."""
+        if not self.smtp_username or not self.smtp_password:
             print(f"Email service not initialized. Would send to {to_email}: {subject}")
             return False
         
         try:
-            params = {
-                "from": self.from_email,
-                "to": to_email,
-                "subject": subject,
-                "html": html_content,
-            }
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.from_email
+            msg['To'] = to_email
             
+            # Add text and HTML parts
             if text_content:
-                params["text"] = text_content
+                text_part = MIMEText(text_content, 'plain')
+                msg.attach(text_part)
             
-            response = resend.Emails.send(params)
+            html_part = MIMEText(html_content, 'html')
+            msg.attach(html_part)
             
-            if response and hasattr(response, 'id'):
-                print(f"Email sent successfully to {to_email}, id: {response.id}")
-                return True
-            elif response and hasattr(response, 'error'):
-                print(f"Failed to send email to {to_email}: {response.error}")
-                return False
-            else:
-                print(f"Email sent successfully to {to_email}")
-                return True
+            # Connect to SMTP server and send
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            
+            print(f"Email sent successfully to {to_email}")
+            return True
                 
         except Exception as e:
             print(f"Error sending email to {to_email}: {e}")
@@ -270,113 +269,216 @@ class EmailService:
         return self.send_email(user_email, subject, html_content, text_content)
     
     def send_daily_digest_email(self, user_email: str, user_name: str, digest_data: Dict[str, Any]) -> bool:
-        """Send daily digest email to managers/HR/Admin."""
-        subject = "Daily Task Digest - SPM"
+        """Send daily digest email with comprehensive task information."""
+        is_manager = digest_data.get("is_manager", False)
+        role_text = "Manager" if is_manager else "Employee"
+        subject = f"Daily Task Digest - SPM ({role_text})"
         
-        # Build digest content
+        # Extract data
         tasks_due_soon = digest_data.get("tasks_due_soon", [])
-        status_changes = digest_data.get("status_changes", [])
+        overdue_tasks = digest_data.get("overdue_tasks", [])
+        overdue_percentage = digest_data.get("overdue_percentage", 0)
+        status_summary = digest_data.get("status_summary", {})
+        completion_percentage = digest_data.get("completion_percentage", 0)
+        total_tasks = digest_data.get("total_tasks", 0)
+        person_tasks_by_project = digest_data.get("person_tasks_by_project", {})
         projects = digest_data.get("projects", {})
         
+        # Build tasks due soon HTML
         tasks_html = ""
         if tasks_due_soon:
             for task in tasks_due_soon:
                 project_name = projects.get(task.get("project_id", ""), "Unknown Project")
+                status_color = {
+                    "todo": "#94A3B8",
+                    "in_progress": "#3B82F6",
+                    "completed": "#10B981",
+                    "blocked": "#EF4444"
+                }.get(task.get("status", "todo"), "#94A3B8")
                 tasks_html += f"""
-                <div style="padding: 10px; margin: 10px 0; background-color: white; border-left: 4px solid #F59E0B;">
+                <div style="padding: 12px; margin: 8px 0; background-color: white; border-left: 4px solid #F59E0B; border-radius: 4px;">
                     <strong>{task.get("title", "Untitled")}</strong><br>
-                    <span style="color: #666; font-size: 14px;">Project: {project_name} | Due: {task.get("due_date", "N/A")}</span>
+                    <span style="color: #666; font-size: 13px;">Project: {project_name} | Due: {task.get("due_date", "N/A")} | Status: <span style="color: {status_color}; font-weight: bold;">{task.get("status", "todo").upper()}</span></span>
                 </div>
                 """
         else:
-            tasks_html = "<p style='color: #666;'>No tasks due in the next 48 hours.</p>"
+            tasks_html = "<p style='color: #666; padding: 10px;'>No tasks due in the next 48 hours.</p>"
         
-        changes_html = ""
-        if status_changes:
-            for change in status_changes:
-                project_name = projects.get(change.get("project_id", ""), "Unknown Project")
-                changes_html += f"""
-                <div style="padding: 10px; margin: 10px 0; background-color: white; border-left: 4px solid #4F46E5;">
-                    <strong>{change.get("task_title", "Untitled")}</strong> - Status changed to <strong>{change.get("status", "Unknown")}</strong><br>
-                    <span style="color: #666; font-size: 14px;">Project: {project_name}</span>
+        # Build overdue tasks HTML
+        overdue_html = ""
+        if overdue_tasks:
+            for task in overdue_tasks:
+                project_name = projects.get(task.get("project_id", ""), "Unknown Project")
+                status_color = {
+                    "todo": "#94A3B8",
+                    "in_progress": "#3B82F6",
+                    "completed": "#10B981",
+                    "blocked": "#EF4444"
+                }.get(task.get("status", "todo"), "#94A3B8")
+                overdue_html += f"""
+                <div style="padding: 12px; margin: 8px 0; background-color: white; border-left: 4px solid #EF4444; border-radius: 4px;">
+                    <strong>{task.get("title", "Untitled")}</strong><br>
+                    <span style="color: #666; font-size: 13px;">Project: {project_name} | Due: {task.get("due_date", "N/A")} | Status: <span style="color: {status_color}; font-weight: bold;">{task.get("status", "todo").upper()}</span></span>
                 </div>
                 """
         else:
-            changes_html = "<p style='color: #666;'>No status changes today.</p>"
+            overdue_html = "<p style='color: #666; padding: 10px;'>No overdue tasks.</p>"
         
-        if not tasks_due_soon and not status_changes:
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
-                    .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>Daily Digest</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hi {user_name},</p>
-                        <p>No new tasks or status changes today.</p>
-                    </div>
+        # Build status summary HTML
+        status_html = f"""
+        <div style="background-color: white; padding: 15px; border-radius: 4px; margin: 10px 0;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap;">
+                <span><strong>Total Tasks:</strong> {total_tasks}</span>
+                <span><strong>Completion:</strong> <span style="color: #10B981; font-weight: bold;">{completion_percentage}%</span></span>
+                <span><strong>Overdue:</strong> <span style="color: #EF4444; font-weight: bold;">{overdue_percentage}%</span></span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                <div style="padding: 8px; background-color: #F1F5F9; border-radius: 4px;">
+                    <strong style="color: #94A3B8;">To Do:</strong> {status_summary.get("todo", 0)}
                 </div>
-            </body>
-            </html>
-            """
-        else:
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
-                    .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
-                    .section {{ margin: 20px 0; }}
-                    .section-title {{ font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #4F46E5; }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>Daily Task Digest</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hi {user_name},</p>
-                        <p>Here's your daily summary of tasks and updates:</p>
-                        
-                        <div class="section">
-                            <div class="section-title">Tasks Due in Next 48 Hours</div>
-                            {tasks_html}
-                        </div>
-                        
-                        <div class="section">
-                            <div class="section-title">Recent Status Changes</div>
-                            {changes_html}
-                        </div>
-                    </div>
+                <div style="padding: 8px; background-color: #EFF6FF; border-radius: 4px;">
+                    <strong style="color: #3B82F6;">In Progress:</strong> {status_summary.get("in_progress", 0)}
                 </div>
-            </body>
-            </html>
-            """
-        
-        text_content = f"""
-        Daily Task Digest
-        
-        Hi {user_name},
-        
-        Tasks Due in Next 48 Hours:
-        {chr(10).join([f"- {t.get('title')} (Project: {projects.get(t.get('project_id', ''), 'Unknown')}, Due: {t.get('due_date', 'N/A')})" for t in tasks_due_soon]) if tasks_due_soon else "No tasks due in the next 48 hours."}
-        
-        Recent Status Changes:
-        {chr(10).join([f"- {c.get('task_title')} - Status: {c.get('status')} (Project: {projects.get(c.get('project_id', ''), 'Unknown')})" for c in status_changes]) if status_changes else "No status changes today."}
+                <div style="padding: 8px; background-color: #D1FAE5; border-radius: 4px;">
+                    <strong style="color: #10B981;">Completed:</strong> {status_summary.get("completed", 0)}
+                </div>
+                <div style="padding: 8px; background-color: #FEE2E2; border-radius: 4px;">
+                    <strong style="color: #EF4444;">Blocked:</strong> {status_summary.get("blocked", 0)}
+                </div>
+            </div>
+        </div>
         """
+        
+        # Build per-person task breakdown HTML
+        person_breakdown_html = ""
+        if person_tasks_by_project:
+            for project_id, people in person_tasks_by_project.items():
+                project_name = projects.get(project_id, "Unassigned Project")
+                person_breakdown_html += f"""
+                <div style="margin: 15px 0; padding: 15px; background-color: white; border-radius: 4px; border-left: 4px solid #4F46E5;">
+                    <h3 style="margin: 0 0 15px 0; color: #4F46E5; font-size: 16px;">{project_name}</h3>
+                """
+                
+                for user_id, person_data in people.items():
+                    person_name = person_data.get("name", "Unknown")
+                    person_tasks = person_data.get("tasks", [])
+                    task_count = len(person_tasks)
+                    
+                    person_breakdown_html += f"""
+                    <div style="margin: 10px 0; padding: 10px; background-color: #F9FAFB; border-radius: 4px;">
+                        <strong>{person_name}</strong> ({task_count} task{'s' if task_count != 1 else ''}):
+                        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+                    """
+                    
+                    for task in person_tasks:
+                        status_color = {
+                            "todo": "#94A3B8",
+                            "in_progress": "#3B82F6",
+                            "completed": "#10B981",
+                            "blocked": "#EF4444"
+                        }.get(task.get("status", "todo"), "#94A3B8")
+                        person_breakdown_html += f"""
+                            <li style="margin: 4px 0;">
+                                {task.get("title", "Untitled")} - 
+                                <span style="color: {status_color}; font-weight: bold;">{task.get("status", "todo").upper()}</span>
+                            </li>
+                        """
+                    
+                    person_breakdown_html += """
+                        </ul>
+                    </div>
+                    """
+                
+                person_breakdown_html += "</div>"
+        else:
+            person_breakdown_html = "<p style='color: #666; padding: 10px;'>No task assignments found.</p>"
+        
+        # Build HTML email
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 700px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
+                .section {{ margin: 25px 0; }}
+                .section-title {{ font-size: 18px; font-weight: bold; margin-bottom: 12px; color: #4F46E5; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1 style="margin: 0;">Daily Task Digest</h1>
+                    <p style="margin: 5px 0 0 0; opacity: 0.9;">{role_text} Summary</p>
+                </div>
+                <div class="content">
+                    <p style="font-size: 16px;">Hi <strong>{user_name}</strong>,</p>
+                    <p>Here's your daily summary of tasks and updates:</p>
+                    
+                    <div class="section">
+                        <div class="section-title">📊 Status Summary</div>
+                        {status_html}
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">🚨 Overdue Tasks</div>
+                        {overdue_html}
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">⏰ Tasks Due in Next 48 Hours</div>
+                        {tasks_html}
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">👥 Task Breakdown by Person & Project</div>
+                        {person_breakdown_html}
+                    </div>
+                    
+                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #666; font-size: 12px;">
+                        <p>This is an automated notification from SPM.</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Build text content
+        text_content = f"""Daily Task Digest ({role_text})
+        
+Hi {user_name},
+
+Status Summary:
+- Total Tasks: {total_tasks}
+- Completion: {completion_percentage}%
+- Overdue: {overdue_percentage}%
+- To Do: {status_summary.get("todo", 0)}
+- In Progress: {status_summary.get("in_progress", 0)}
+- Completed: {status_summary.get("completed", 0)}
+- Blocked: {status_summary.get("blocked", 0)}
+
+Overdue Tasks:
+{chr(10).join([f"- {t.get('title')} (Project: {projects.get(t.get('project_id', ''), 'Unknown')}, Due: {t.get('due_date', 'N/A')}, Status: {t.get('status')})" for t in overdue_tasks]) if overdue_tasks else "No overdue tasks."}
+
+Tasks Due in Next 48 Hours:
+{chr(10).join([f"- {t.get('title')} (Project: {projects.get(t.get('project_id', ''), 'Unknown')}, Due: {t.get('due_date', 'N/A')}, Status: {t.get('status')})" for t in tasks_due_soon]) if tasks_due_soon else "No tasks due in the next 48 hours."}
+
+Task Breakdown by Person & Project:
+"""
+        
+        for project_id, people in person_tasks_by_project.items():
+            project_name = projects.get(project_id, "Unassigned Project")
+            text_content += f"\n{project_name}:\n"
+            for user_id, person_data in people.items():
+                person_name = person_data.get("name", "Unknown")
+                person_tasks = person_data.get("tasks", [])
+                text_content += f"  {person_name} ({len(person_tasks)} tasks):\n"
+                for task in person_tasks:
+                    text_content += f"    - {task.get('title')} [{task.get('status', 'todo').upper()}]\n"
+        
+        text_content += "\nThis is an automated notification from SPM."
         
         return self.send_email(user_email, subject, html_content, text_content)

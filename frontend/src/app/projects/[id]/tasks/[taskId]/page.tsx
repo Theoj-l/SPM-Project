@@ -44,6 +44,19 @@ import {
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import AssigneeSelector from "@/components/AssigneeSelector";
 
+// Helper function to format date in Singapore time
+const formatSingaporeTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleString("en-SG", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 // Recursive Comment Component
 function CommentItem({
   comment,
@@ -87,7 +100,7 @@ function CommentItem({
                 "Unknown"}
             </span>
             <span className="text-xs text-gray-500">
-              {new Date(comment.created_at).toLocaleString()}
+              {formatSingaporeTime(comment.created_at)}
             </span>
             {(isAdmin(user) || isManager(user)) && (
               <button
@@ -380,8 +393,15 @@ export default function TaskDetailPage() {
   const saveTask = async () => {
     if (!task) return;
 
+    // Validate that at least one assignee is selected
+    if (!editForm.assignee_ids || editForm.assignee_ids.length === 0) {
+      setError("At least one assignee is required");
+      return;
+    }
+
     try {
       setSaving(true);
+      setError("");
 
       // Update task via API
       const updatedTask = await TasksAPI.update(task.id, {
@@ -396,7 +416,7 @@ export default function TaskDetailPage() {
       setTask(updatedTask);
       setEditing(false);
     } catch (err: any) {
-      setError("Failed to update task");
+      setError(err.message || "Failed to update task");
     } finally {
       setSaving(false);
     }

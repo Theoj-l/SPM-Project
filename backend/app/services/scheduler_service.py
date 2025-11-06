@@ -19,11 +19,9 @@ class SchedulerService:
     
     def start(self):
         """Start the scheduler."""
-        import asyncio
-        
         # Check deadline reminders every hour
         self.scheduler.add_job(
-            lambda: asyncio.run(self.check_deadline_reminders()),
+            self.check_deadline_reminders,
             trigger=CronTrigger(minute=0),  # Run at the top of every hour
             id="deadline_reminders",
             replace_existing=True
@@ -31,16 +29,16 @@ class SchedulerService:
         
         # Check overdue tasks every hour
         self.scheduler.add_job(
-            lambda: asyncio.run(self.check_overdue_tasks()),
+            self.check_overdue_tasks,
             trigger=CronTrigger(minute=0),  # Run at the top of every hour
             id="overdue_tasks",
             replace_existing=True
         )
         
-        # Send daily digests at 6 PM SGT (10 AM UTC)
+        # Send daily digests at 5 PM SGT (9 AM UTC)
         self.scheduler.add_job(
-            lambda: asyncio.run(self.send_daily_digests()),
-            trigger=CronTrigger(hour=10, minute=0),  # 6 PM SGT = 10 AM UTC
+            self.send_daily_digests,
+            trigger=CronTrigger(hour=9, minute=0),  # 5 PM SGT = 9 AM UTC
             id="daily_digests",
             replace_existing=True
         )
@@ -188,63 +186,205 @@ class SchedulerService:
             print(f"Error checking overdue tasks: {e}")
     
     async def send_daily_digests(self):
-        """Send daily digest emails to managers and admins."""
+        """Send daily digest emails to all users (managers and employees) with role-based content."""
         try:
-            # Get all users with manager or admin roles
-            result = self.client.table("users").select("id, email, display_name, roles").execute()
-            
-            managers_and_admins = []
-            for user in result.data:
-                roles = user.get("roles", [])
-                if isinstance(roles, str):
-                    roles = [r.strip() for r in roles.split(",")]
-                
-                if "manager" in roles or "admin" in roles or "hr" in [r.lower() for r in roles]:
-                    managers_and_admins.append(user)
+            # Get all users
+            users_result = self.client.table("users").select("id, email, display_name, roles").execute()
             
             now = datetime.utcnow()
             tomorrow = now + timedelta(days=2)
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             
             # Get all projects for mapping
-            projects_result = self.client.table("projects").select("id, name").execute()
-            projects_map = {p["id"]: p["name"] for p in projects_result.data}
+            projects_result = self.client.table("projects").select("id, name, owner_id, status").execute()
+            projects_map = {p["id"]: {"name": p["name"], "owner_id": p.get("owner_id"), "status": p.get("status", "active")} for p in projects_result.data}
             
-            # Get tasks due in next 48 hours
-            tasks_result = self.client.table("tasks").select("*").eq("type", "active").in_("status", ["todo", "in_progress", "blocked"]).execute()
+            # Get all project members for manager role checking
+            members_result = self.client.table("project_members").select("project_id, user_id, role").execute()
+            project_members_map = {}  # {project_id: [{user_id, role}]}
+            for member in members_result.data:
+                project_id = member["project_id"]
+                if project_id not in project_members_map:
+                    project_members_map[project_id] = []
+                project_members_map[project_id].append({
+                    "user_id": member["user_id"],
+                    "role": member["role"]
+                })
             
-            tasks_due_soon = []
-            for task in tasks_result.data:
-                if not task.get("due_date"):
-                    continue
-                
-                try:
-                    due_date = datetime.strptime(task["due_date"][:10], "%Y-%m-%d")
-                    if today_start <= due_date <= tomorrow:
-                        tasks_due_soon.append({
-                            "id": task.get("id"),
-                            "title": task.get("title"),
-                            "due_date": task["due_date"][:10],
-                            "project_id": task.get("project_id"),
-                            "status": task.get("status")
-                        })
-                except (ValueError, TypeError):
-                    continue
+            # Get all active tasks
+            all_tasks_result = self.client.table("tasks").select("*").eq("type", "active").execute()
             
-            # Get recent status changes (last 24 hours)
-            # Note: This is a simplified version. In production, you'd track status changes in a separate table
-            status_changes = []  # Can be enhanced to track actual status changes
+            # Get all users info for assignee names
+            users_info = {}
+            for user in users_result.data:
+                users_info[user["id"]] = {
+                    "display_name": user.get("display_name") or user.get("email", "").split("@")[0],
+                    "email": user.get("email")
+                }
             
-            # Send digest to each manager/admin
-            for user in managers_and_admins:
+            # Process each user
+            for user in users_result.data:
+                user_id = user["id"]
                 user_email = user.get("email")
                 user_name = user.get("display_name") or user.get("email", "").split("@")[0]
                 
-                # Filter tasks by projects the user has access to (simplified - send all)
+                if not user_email:
+                    continue
+                
+                # Parse user roles (global roles)
+                global_roles = user.get("roles", [])
+                if isinstance(global_roles, str):
+                    global_roles = [r.strip().lower() for r in global_roles.split(",")]
+                elif isinstance(global_roles, list):
+                    global_roles = [r.lower() for r in global_roles]
+                else:
+                    global_roles = []
+                
+                # Check if user is globally a manager/admin/hr
+                global_is_manager = "manager" in global_roles or "admin" in global_roles or "hr" in global_roles
+                
+                # Get relevant projects and tasks based on per-project role
+                # User can be manager in one project but staff in another
+                relevant_project_ids = set()
+                relevant_tasks = []
+                project_role_map = {}  # Track user's role per project
+                
+                # Build a map of projects where user is manager/owner
+                manager_project_ids = set()
+                for project_id, project_data in projects_map.items():
+                    if project_data["status"] != "active":
+                        continue
+                    # Check if user is owner
+                    if project_data.get("owner_id") == user_id:
+                        manager_project_ids.add(project_id)
+                        project_role_map[project_id] = "manager"
+                    # Check if user is manager in project_members
+                    elif project_id in project_members_map:
+                        for member in project_members_map[project_id]:
+                            if member["user_id"] == user_id and member["role"] in ["owner", "manager"]:
+                                manager_project_ids.add(project_id)
+                                project_role_map[project_id] = "manager"
+                                break
+                            elif member["user_id"] == user_id:
+                                project_role_map[project_id] = "employee"
+                                break
+                
+                # Collect tasks: if user is manager in a project, get all tasks in that project
+                # Otherwise, get only tasks assigned to them
+                for task in all_tasks_result.data:
+                    project_id = task.get("project_id")
+                    if project_id in manager_project_ids:
+                        # User is manager in this project - see all tasks
+                        relevant_tasks.append(task)
+                        relevant_project_ids.add(project_id)
+                    else:
+                        # User is employee in this project or not a member - only see assigned tasks
+                        assigned = task.get("assigned", [])
+                        if user_id in assigned:
+                            relevant_tasks.append(task)
+                            if project_id:
+                                relevant_project_ids.add(project_id)
+                                if project_id not in project_role_map:
+                                    project_role_map[project_id] = "employee"
+                
+                # Determine overall role for email (manager if they manage any project, otherwise employee)
+                is_manager = len(manager_project_ids) > 0 or global_is_manager
+                
+                if not relevant_tasks:
+                    continue  # Skip users with no relevant tasks
+                
+                # Build digest data
+                # 1. Tasks due soon (next 48 hours) and overdue tasks
+                tasks_due_soon = []
+                overdue_tasks = []
+                
+                for task in relevant_tasks:
+                    if not task.get("due_date"):
+                        continue
+                    try:
+                        # Handle both date and datetime formats
+                        due_date_str = task["due_date"][:10] if isinstance(task["due_date"], str) else task["due_date"].strftime("%Y-%m-%d")
+                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+                        
+                        # Check if overdue (past today)
+                        if due_date < today_start and task.get("status") != "completed":
+                            overdue_tasks.append({
+                                "id": task.get("id"),
+                                "title": task.get("title"),
+                                "due_date": due_date_str,
+                                "project_id": task.get("project_id"),
+                                "status": task.get("status"),
+                                "assigned": task.get("assigned", [])
+                            })
+                        # Check if due soon (within next 48 hours)
+                        elif today_start <= due_date <= tomorrow:
+                            tasks_due_soon.append({
+                                "id": task.get("id"),
+                                "title": task.get("title"),
+                                "due_date": due_date_str,
+                                "project_id": task.get("project_id"),
+                                "status": task.get("status"),
+                                "assigned": task.get("assigned", [])
+                            })
+                    except (ValueError, TypeError):
+                        continue
+                
+                # 2. Status summary
+                status_counts = {"todo": 0, "in_progress": 0, "completed": 0, "blocked": 0}
+                for task in relevant_tasks:
+                    status = task.get("status", "todo")
+                    if status in status_counts:
+                        status_counts[status] += 1
+                
+                total_tasks = len(relevant_tasks)
+                completed_tasks = status_counts["completed"]
+                completion_percentage = round((completed_tasks / total_tasks * 100) if total_tasks > 0 else 0, 1)
+                
+                # Calculate overdue percentage (overdue tasks / total tasks with due dates)
+                tasks_with_due_dates = [t for t in relevant_tasks if t.get("due_date")]
+                total_tasks_with_due_dates = len(tasks_with_due_dates)
+                overdue_percentage = round((len(overdue_tasks) / total_tasks_with_due_dates * 100) if total_tasks_with_due_dates > 0 else 0, 1)
+                
+                # 3. Per-person task breakdown by project
+                person_tasks_by_project = {}  # {project_id: {user_id: {name, tasks: [{title, status}]}}}
+                
+                for task in relevant_tasks:
+                    project_id = task.get("project_id") or "unassigned"
+                    assigned = task.get("assigned", [])
+                    
+                    if project_id not in person_tasks_by_project:
+                        person_tasks_by_project[project_id] = {}
+                    
+                    for assignee_id in assigned:
+                        if assignee_id not in person_tasks_by_project[project_id]:
+                            assignee_info = users_info.get(assignee_id, {})
+                            person_tasks_by_project[project_id][assignee_id] = {
+                                "name": assignee_info.get("display_name", "Unknown"),
+                                "tasks": []
+                            }
+                        
+                        person_tasks_by_project[project_id][assignee_id]["tasks"].append({
+                            "title": task.get("title", "Untitled"),
+                            "status": task.get("status", "todo"),
+                            "id": task.get("id")
+                        })
+                
+                # Build projects map for display
+                display_projects_map = {}
+                for project_id in relevant_project_ids:
+                    if project_id in projects_map:
+                        display_projects_map[project_id] = projects_map[project_id]["name"]
+                
                 digest_data = {
                     "tasks_due_soon": tasks_due_soon,
-                    "status_changes": status_changes,
-                    "projects": projects_map
+                    "overdue_tasks": overdue_tasks,
+                    "overdue_percentage": overdue_percentage,
+                    "status_summary": status_counts,
+                    "completion_percentage": completion_percentage,
+                    "total_tasks": total_tasks,
+                    "person_tasks_by_project": person_tasks_by_project,
+                    "projects": display_projects_map,
+                    "is_manager": is_manager
                 }
                 
                 self.email_service.send_daily_digest_email(
@@ -253,7 +393,9 @@ class SchedulerService:
                     digest_data=digest_data
                 )
             
-            print(f"Sent daily digests to {len(managers_and_admins)} managers/admins")
+            print(f"Sent daily digests to {len(users_result.data)} users")
         except Exception as e:
             print(f"Error sending daily digests: {e}")
+            import traceback
+            traceback.print_exc()
 

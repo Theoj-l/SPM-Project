@@ -168,77 +168,147 @@ class ProjectService:
     def add_task(project_id: str, title: str, description: Optional[str] = None, 
                  due_date: Optional[str] = None, notes: Optional[str] = None,
                  assignee_ids: Optional[List[str]] = None, status: str = "todo",
-                 tags: Optional[List[str]] = None, recurring: Optional[dict] = None) -> Dict[str, Any]:
-        payload = {
-            "project_id": project_id, 
-            "title": title.strip(),
-            "status": status
-        }
-        
-        if description:
-            payload["description"] = description.strip()
-        if due_date:
-            payload["due_date"] = due_date
-        if notes:
-            payload["notes"] = notes.strip()
-        if assignee_ids:
-            payload["assigned"] = assignee_ids  # Using 'assigned' field from database schema
-        if tags:
-            payload["tags"] = tags
-        if recurring:
-            payload["recurring"] = recurring
-        
-        task_result = SupabaseService.insert("tasks", payload)
-        
-        # Create notifications for assigned users
-        if assignee_ids and task_result:
-            from app.services.notification_service import NotificationService
-            from app.services.email_service import EmailService
-            from app.supabase_client import get_supabase_client
-            
-            notification_service = NotificationService()
-            email_service = EmailService()
-            client = get_supabase_client()
-            
-            # Get project name
-            project_result = client.table("projects").select("name").eq("id", project_id).execute()
-            project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
-            
-            task_id = task_result.get("id")
-            if task_id:
-                for assignee_id in assignee_ids:
-                    # Create in-app notification
-                    notification_service.create_task_assigned_notification(
-                        user_id=assignee_id,
-                        task_id=task_id,
+                 tags: Optional[List[str]] = None, recurring: Optional[dict] = None,
+                 priority: Optional[int] = None) -> Dict[str, Any]:
+        """Create a task. If recurring is enabled, expand into multiple individual tasks up to end_date.
+        Returns the first created task for API compatibility."""
+
+        def base_payload(due_date_value: Optional[str]) -> Dict[str, Any]:
+            payload: Dict[str, Any] = {
+                "project_id": project_id,
+                "title": title.strip(),
+                "status": status,
+            }
+            if description:
+                payload["description"] = description.strip()
+            if due_date_value:
+                payload["due_date"] = due_date_value
+            if notes:
+                payload["notes"] = notes.strip()
+            if assignee_ids:
+                payload["assigned"] = assignee_ids
+            if tags:
+                payload["tags"] = tags
+            if priority is not None:
+                payload["priority"] = priority
+            return payload
+
+        # Non-recurring: create single task
+        if not recurring or not recurring.get("enabled"):
+            task_result = SupabaseService.insert("tasks", base_payload(due_date))
+            ProjectService._notify_assignees(project_id, title, assignee_ids, task_result)
+            return task_result
+
+        # Recurring: expand into occurrences based on frequency/interval until end_date (inclusive)
+        if not due_date:
+            raise ValueError("Due date is required for recurring tasks")
+        end_date = recurring.get("end_date")
+        if not end_date:
+            raise ValueError("End date is required for recurring tasks")
+
+        import datetime as _dt
+
+        start = _dt.datetime.strptime(due_date, "%Y-%m-%d").date()
+        end = _dt.datetime.strptime(end_date, "%Y-%m-%d").date()
+        if end < start:
+            raise ValueError("Recurring end date cannot be before start due date")
+
+        frequency = (recurring.get("frequency") or "weekly").lower()
+        interval = int(recurring.get("interval") or 1)
+        if interval < 1:
+            interval = 1
+
+        def add_months(d: _dt.date, months: int) -> _dt.date:
+            month = d.month - 1 + months
+            year = d.year + month // 12
+            month = month % 12 + 1
+            day = min(d.day, [31,
+                              29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+                              31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+            return _dt.date(year, month, day)
+
+        def add_years(d: _dt.date, years: int) -> _dt.date:
+            try:
+                return d.replace(year=d.year + years)
+            except ValueError:
+                # Handle Feb 29 -> Feb 28 on non-leap years
+                return d.replace(month=2, day=28, year=d.year + years)
+
+        created_results: List[Dict[str, Any]] = []
+        current = start
+        while current <= end:
+            payload = base_payload(current.strftime("%Y-%m-%d"))
+            result = SupabaseService.insert("tasks", payload)
+            created_results.append(result)
+
+            if frequency == "daily":
+                current = current + _dt.timedelta(days=interval)
+            elif frequency == "weekly":
+                current = current + _dt.timedelta(weeks=interval)
+            elif frequency == "monthly":
+                current = add_months(current, interval)
+            elif frequency == "yearly":
+                current = add_years(current, interval)
+            else:
+                # default to weekly if unknown
+                current = current + _dt.timedelta(weeks=interval)
+
+        # Notify assignees for the first created task (avoid spamming)
+        first = created_results[0] if created_results else {}
+        ProjectService._notify_assignees(project_id, title, assignee_ids, first)
+        return first
+
+    @staticmethod
+    def _notify_assignees(project_id: str, title: str, assignee_ids: Optional[List[str]], task_result: Optional[Dict[str, Any]]):
+        if not (assignee_ids and task_result):
+            return
+        from app.services.notification_service import NotificationService
+        from app.services.email_service import EmailService
+        from app.supabase_client import get_supabase_client
+
+        notification_service = NotificationService()
+        email_service = EmailService()
+        client = get_supabase_client()
+
+        project_result = client.table("projects").select("name").eq("id", project_id).execute()
+        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+
+        task_id = task_result.get("id")
+        if task_id:
+            for assignee_id in assignee_ids:
+                notification_service.create_task_assigned_notification(
+                    user_id=assignee_id,
+                    task_id=task_id,
+                    task_title=title,
+                    project_id=project_id
+                )
+
+                user_result = client.table("users").select("email, display_name").eq("id", assignee_id).execute()
+                if user_result.data:
+                    user_data = user_result.data[0]
+                    email_service.send_task_assigned_email(
+                        user_email=user_data.get("email"),
+                        user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
                         task_title=title,
-                        project_id=project_id
+                        task_id=task_id,
+                        project_name=project_name
                     )
-                    
-                    # Send email notification
-                    user_result = client.table("users").select("email, display_name").eq("id", assignee_id).execute()
-                    if user_result.data:
-                        user_data = user_result.data[0]
-                        email_service.send_task_assigned_email(
-                            user_email=user_data.get("email"),
-                            user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
-                            task_title=title,
-                            task_id=task_id,
-                            project_name=project_name
-                        )
-        
-        return task_result
 
     @staticmethod
     def reassign_task(task_id: str, new_project_id: Optional[str]) -> Dict[str, Any]:
         return SupabaseService.update("tasks", {"project_id": new_project_id}, {"id": task_id})
 
     @staticmethod
-    def tasks_by_project(project_id: str, include_archived: bool = False) -> List[Dict[str, Any]]:
+    def tasks_by_project(project_id: str, include_archived: bool = False, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get tasks for a project, optionally filtered by department access control"""
         filters = {"project_id": project_id}
         if not include_archived:
             filters["type"] = "active"
         tasks = SupabaseService.select("tasks", filters=filters)
+        
+        # Apply department-based filtering if user_id is provided
+        if user_id:
+            tasks = ProjectService._filter_tasks_by_department(tasks, user_id)
         
         # Get all unique assignee IDs from all tasks
         assignee_ids = set()
@@ -268,14 +338,159 @@ class ProjectService:
                     task["assignee_names"].append(name)
         
         return tasks
+    
+    @staticmethod
+    def _filter_tasks_by_department(tasks: List[Dict[str, Any]], user_id: str) -> List[Dict[str, Any]]:
+        """Filter tasks based on department access control:
+        - Staff can see tasks if any assignee is from their department or reporting departments
+        - Managers can see all tasks (handled separately)
+        """
+        client = get_supabase_client()
+        
+        # Get user's roles and department
+        user_result = client.table("users").select("id, department_id, roles").eq("id", user_id).execute()
+        if not user_result.data:
+            return []  # User not found
+        
+        user_data = user_result.data[0]
+        user_roles = user_data.get("roles", [])
+        if isinstance(user_roles, str):
+            user_roles = [r.strip().lower() for r in user_roles.split(",")]
+        elif isinstance(user_roles, list):
+            user_roles = [r.lower() for r in user_roles]
+        
+        # Managers can see all tasks
+        if "manager" in user_roles:
+            return tasks
+        
+        user_department_id = user_data.get("department_id")
+        if not user_department_id:
+            # User has no department - can only see tasks they're assigned to
+            return [task for task in tasks if task.get("assigned") and user_id in task.get("assigned", [])]
+        
+        # Get all departments that report to user's department (including user's department)
+        accessible_department_ids = {user_department_id}
+        try:
+            # Get child departments (departments that report to user's department)
+            dept_result = client.table("departments").select("id, parent_department_id").execute()
+            if dept_result.data:
+                # Build a map of parent -> children
+                parent_to_children = {}
+                for dept in dept_result.data:
+                    parent_id = dept.get("parent_department_id")
+                    if parent_id:
+                        if parent_id not in parent_to_children:
+                            parent_to_children[parent_id] = []
+                        parent_to_children[parent_id].append(dept["id"])
+                
+                # Recursively get all child departments
+                def get_child_departments(dept_id):
+                    children = parent_to_children.get(dept_id, [])
+                    result = set(children)
+                    for child_id in children:
+                        result.update(get_child_departments(child_id))
+                    return result
+                
+                accessible_department_ids.update(get_child_departments(user_department_id))
+        except Exception:
+            # If departments table doesn't exist or error, just use user's department
+            pass
+        
+        # Get all assignee IDs from tasks
+        assignee_ids = set()
+        for task in tasks:
+            if task.get("assigned"):
+                assignee_ids.update(task["assigned"])
+        
+        # Get departments of all assignees
+        assignee_departments = {}
+        if assignee_ids:
+            try:
+                assignees_result = client.table("users").select("id, department_id").in_("id", list(assignee_ids)).execute()
+                if assignees_result.data:
+                    for assignee in assignees_result.data:
+                        assignee_departments[assignee["id"]] = assignee.get("department_id")
+            except Exception:
+                # If department_id doesn't exist in users table, return all tasks
+                return tasks
+        
+        # Filter tasks: show if any assignee is from accessible departments
+        filtered_tasks = []
+        for task in tasks:
+            assigned = task.get("assigned", [])
+            if not assigned:
+                continue
+            
+            # Check if any assignee is from an accessible department
+            has_accessible_assignee = False
+            for assignee_id in assigned:
+                assignee_dept = assignee_departments.get(assignee_id)
+                if assignee_dept and assignee_dept in accessible_department_ids:
+                    has_accessible_assignee = True
+                    break
+            
+            if has_accessible_assignee:
+                filtered_tasks.append(task)
+        
+        return filtered_tasks
 
     @staticmethod
-    def tasks_grouped_kanban(project_id: str) -> Dict[str, List[Dict[str, Any]]]:
-        rows = ProjectService.tasks_by_project(project_id)
+    def tasks_grouped_kanban(project_id: str, user_id: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+        rows = ProjectService.tasks_by_project(project_id, include_archived=False, user_id=user_id)
         kanban = {"todo": [], "in_progress": [], "review": [], "done": []}
         for r in rows:
             kanban.setdefault(r["status"], []).append(r)
         return kanban
+    
+    @staticmethod
+    def tasks_by_tag(tag: str, user_id: Optional[str] = None, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """Get all tasks with a specific tag, filtered by department access control"""
+        filters = {}
+        if not include_archived:
+            filters["type"] = "active"
+        
+        # Get all tasks
+        all_tasks = SupabaseService.select("tasks", filters=filters)
+        
+        # Filter by tag
+        tasks_with_tag = []
+        for task in all_tasks:
+            task_tags = task.get("tags", [])
+            if isinstance(task_tags, list) and tag in task_tags:
+                tasks_with_tag.append(task)
+        
+        # Apply department-based filtering if user_id is provided
+        if user_id:
+            tasks_with_tag = ProjectService._filter_tasks_by_department(tasks_with_tag, user_id)
+        
+        # Get all unique assignee IDs from all tasks
+        assignee_ids = set()
+        for task in tasks_with_tag:
+            if task.get("assigned"):
+                assignee_ids.update(task["assigned"])
+        
+        # Fetch assignee information
+        assignee_info = {}
+        if assignee_ids:
+            client = get_supabase_client()
+            assignee_rows = client.table("users").select("id, display_name, email").in_("id", list(assignee_ids)).execute()
+            for assignee in assignee_rows.data or []:
+                assignee_info[assignee["id"]] = {
+                    "display_name": assignee.get("display_name"),
+                    "email": assignee.get("email")
+                }
+        
+        # Add assignee names to each task
+        for task in tasks_with_tag:
+            task["assignee_ids"] = task.get("assigned", [])
+            task["assignee_names"] = []
+            if task.get("assigned"):
+                for assignee_id in task["assigned"]:
+                    assignee_data = assignee_info.get(assignee_id, {})
+                    name = assignee_data.get("display_name") or assignee_data.get("email", "Unknown")
+                    task["assignee_names"].append(name)
+        
+        return tasks_with_tag
 
     @staticmethod
     def is_project_member(project_id: str, user_id: str) -> bool:
@@ -503,6 +718,47 @@ class ProjectService:
         return SupabaseService.delete("tasks", {"id": task_id})
 
     @staticmethod
-    def update_task_assignees(task_id: str, assignee_ids: List[str]) -> Dict[str, Any]:
-        """Update task assignees"""
-        return SupabaseService.update("tasks", {"assigned": assignee_ids}, {"id": task_id})
+    def update_task_assignees(task_id: str, assignee_ids: List[str], user_id: str) -> Dict[str, Any]:
+        """Update task assignees with permission checks:
+        - All assignees can add new assignees
+        - Only managers can remove assignees
+        - Must maintain at least 1 assignee
+        """
+        # Get current task and assignees
+        task = ProjectService.get_task(task_id)
+        if not task:
+            raise ValueError("Task not found")
+        
+        current_assignees = set(task.get("assigned", []))
+        new_assignees = set(assignee_ids)
+        
+        # Check if user is trying to remove assignees
+        removed_assignees = current_assignees - new_assignees
+        
+        if removed_assignees:
+            # Check if user is a manager
+            user_roles = ProjectService.get_user_roles(user_id)
+            is_manager = "manager" in user_roles
+            
+            if not is_manager:
+                raise PermissionError("Only managers can remove assignees from tasks")
+        
+        # Ensure at least one assignee remains
+        if len(new_assignees) == 0:
+            raise ValueError("At least one assignee is required")
+        
+        # Check if user is adding assignees (they must be an assignee or manager)
+        added_assignees = new_assignees - current_assignees
+        if added_assignees:
+            user_roles = ProjectService.get_user_roles(user_id)
+            is_manager = "manager" in user_roles
+            is_current_assignee = user_id in current_assignees
+            
+            if not (is_manager or is_current_assignee):
+                raise PermissionError("Only assignees or managers can add new assignees")
+        
+        # Validate max 5 assignees
+        if len(new_assignees) > 5:
+            raise ValueError("Maximum 5 assignees allowed")
+        
+        return SupabaseService.update("tasks", {"assigned": list(new_assignees)}, {"id": task_id})

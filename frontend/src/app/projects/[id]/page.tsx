@@ -71,6 +71,7 @@ export default function ProjectDetailPage() {
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
 
   // Project members visibility state
   const [showProjectMembers, setShowProjectMembers] = useState(false);
@@ -336,6 +337,20 @@ export default function ProjectDetailPage() {
       }
     }
 
+    // Filter by priority
+    if (priorityFilter !== "all") {
+      if (priorityFilter === "no_priority") {
+        filtered = filtered.filter(
+          (task) => !task.priority || task.priority === undefined
+        );
+      } else {
+        const priorityValue = parseInt(priorityFilter, 10);
+        filtered = filtered.filter(
+          (task) => task.priority === priorityValue
+        );
+      }
+    }
+
     return filtered;
   };
 
@@ -357,6 +372,7 @@ export default function ProjectDetailPage() {
     setAssigneeFilter("all");
     setDateFilter("all");
     setTagFilter("all");
+    setPriorityFilter("all");
   };
 
   // Check if any filters are active
@@ -366,7 +382,8 @@ export default function ProjectDetailPage() {
       statusFilter !== "all" ||
       assigneeFilter !== "all" ||
       dateFilter !== "all" ||
-      tagFilter !== "all"
+      tagFilter !== "all" ||
+      priorityFilter !== "all"
     );
   };
 
@@ -470,7 +487,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Project Members Section */}
+      {/* Collaborators Section */}
       <div className="bg-white rounded-lg border border-gray-200 mb-6">
         <div className="p-4 border-b border-gray-200">
           <button
@@ -484,21 +501,42 @@ export default function ProjectDetailPage() {
             )}
             <UserIcon className="h-5 w-5" />
             <h2 className="text-lg font-semibold text-gray-900">
-              Project Members ({users.length})
+              Collaborators ({users.length})
             </h2>
           </button>
         </div>
         {showProjectMembers && (
           <div className="p-4">
-            {users.length === 0 ? (
-              <div className="text-center py-8">
-                <UserIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm mb-1">No members found</p>
-                <p className="text-gray-400 text-xs">
-                  Project members will appear here
-                </p>
-              </div>
-            ) : (
+            {(() => {
+              // Check if there are no other collaborators besides the current user
+              const otherCollaborators = users.filter(
+                (member) => member.id !== user?.id
+              );
+              const hasNoOtherCollaborators = otherCollaborators.length === 0;
+
+              if (hasNoOtherCollaborators && (project?.user_role === "owner" || project?.user_role === "manager" || user?.id === project?.owner_id)) {
+                return (
+                  <div className="text-center py-8">
+                    <UserIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500 text-sm">
+                      No collaborators added yet.
+                    </p>
+                  </div>
+                );
+              }
+
+              if (users.length === 0) {
+                return (
+                  <div className="text-center py-8">
+                    <UserIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500 text-sm">
+                      No collaborators added yet.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {users.map((member) => (
                   <div
@@ -537,12 +575,15 @@ export default function ProjectDetailPage() {
                         ? "Owner"
                         : member.roles.includes("manager")
                         ? "Manager"
-                        : "Staff"}
+                        : member.roles.includes("staff")
+                        ? "Staff"
+                        : "Member"}
                     </Badge>
                   </div>
                 ))}
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
@@ -581,6 +622,7 @@ export default function ProjectDetailPage() {
             </Button>
             {(project.user_role === "owner" ||
               project.user_role === "manager" ||
+              project.user_role === "staff" ||
               canAdminManage(user)) && (
               <Button
                 onClick={() => setShowCreateTaskModal(true)}
@@ -597,7 +639,7 @@ export default function ProjectDetailPage() {
         {/* Filter Controls */}
         {showFilters && (
           <div className="p-6 border-b border-gray-200 bg-gray-50/50">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               {/* Search */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
@@ -693,6 +735,27 @@ export default function ProjectDetailPage() {
                     {getAllTags().map((tag) => (
                       <SelectItem key={tag} value={tag}>
                         {tag.charAt(0).toUpperCase() + tag.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Priority Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Priority
+                </label>
+                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Priorities" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Priorities</SelectItem>
+                    <SelectItem value="no_priority">No Priority</SelectItem>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((priority) => (
+                      <SelectItem key={priority} value={priority.toString()}>
+                        Priority {priority}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -92,6 +92,8 @@ class TaskService:
                 assignee_ids=task_data.get("assigned", []),
                 assignee_names=assignee_names,
                 type=task_data.get("type", "active"),  # Default to "active" if type field doesn't exist
+                tags=task_data.get("tags", []),
+                priority=task_data.get("priority"),
                 created_at=task_data.get("created_at")
             )
         except Exception as e:
@@ -121,17 +123,57 @@ class TaskService:
             if not can_manage:
                 raise PermissionError("Admin role alone cannot modify tasks. Admin+Manager/Staff required.")
 
+            # Prevent project_id from being updated
+            if 'project_id' in updates:
+                raise ValueError("Project cannot be changed after task creation")
+            
             # Prepare update data - only allow certain fields to be updated
-            allowed_fields = ['title', 'description', 'status', 'notes', 'assignee_ids']
+            allowed_fields = ['title', 'description', 'status', 'notes', 'tags', 'priority']
             update_data = {}
             
             for field in allowed_fields:
                 if field in updates:
-                    if field == 'assignee_ids':
-                        # Map assignee_ids to the database column 'assigned'
-                        update_data['assigned'] = updates[field]
+                    if field == 'tags':
+                        # Tags can be updated (already parsed as list if coming from TaskUpdate model)
+                        if isinstance(updates[field], list):
+                            update_data['tags'] = updates[field]
+                        elif isinstance(updates[field], str):
+                            # Parse tags from string if needed
+                            parsed = [tag.strip() for tag in updates[field].split('#') if tag.strip()]
+                            if len(parsed) > 10:
+                                raise ValueError('Maximum 10 tags allowed')
+                            update_data['tags'] = parsed
                     else:
                         update_data[field] = updates[field]
+            
+            # Handle assignee_ids separately with permission checks
+            if 'assignee_ids' in updates:
+                assignee_ids = updates['assignee_ids']
+                if not assignee_ids or len(assignee_ids) == 0:
+                    raise ValueError('At least one assignee is required')
+                
+                # Use the same permission logic as update_task_assignees
+                current_assignees = set(task.assignee_ids or [])
+                new_assignees = set(assignee_ids)
+                removed_assignees = current_assignees - new_assignees
+                
+                if removed_assignees:
+                    is_manager = "manager" in user_roles
+                    if not is_manager:
+                        raise PermissionError("Only managers can remove assignees from tasks")
+                
+                if len(new_assignees) > 5:
+                    raise ValueError("Maximum 5 assignees allowed")
+                
+                # Check if user is adding assignees
+                added_assignees = new_assignees - current_assignees
+                if added_assignees:
+                    is_manager = "manager" in user_roles
+                    is_current_assignee = user_id in current_assignees
+                    if not (is_manager or is_current_assignee):
+                        raise PermissionError("Only assignees or managers can add new assignees")
+                
+                update_data['assigned'] = list(new_assignees)
 
             if not update_data:
                 return task  # No valid updates provided
@@ -613,6 +655,15 @@ class TaskService:
             task = await self.get_task_by_id(parent_task_id, user_id, include_archived=True)
             if not task:
                 return None
+
+            # Validate assignee_ids if being updated
+            if "assignee_ids" in updates or "assigned" in updates:
+                assignee_ids = updates.get("assignee_ids") or updates.get("assigned")
+                if not assignee_ids or len(assignee_ids) == 0:
+                    raise ValueError('At least one assignee is required')
+                # Map assignee_ids to assigned if needed
+                if "assignee_ids" in updates:
+                    updates["assigned"] = updates.pop("assignee_ids")
 
             # Update the subtask
             result = self.client.table("subtasks").update(updates).eq("id", subtask_id).execute()

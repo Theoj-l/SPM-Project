@@ -37,7 +37,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type Project = { id: string; name: string; owner_id: string; owner_display_name?: string; cover_url?: string | null; user_role?: string; status?: "active" | "archived"; };
-export type Task = { id: string; project_id?: string | null; title: string; description?: string; status: "todo"|"in_progress"|"completed"|"blocked"; due_date?: string; notes?: string; assignee_ids?: string[]; assignee_names?: string[]; assigned?: string[]; type?: "active"|"archived"; tags?: string[]; created_at?: string; };
+export type Task = { id: string; project_id?: string | null; title: string; description?: string; status: "todo"|"in_progress"|"completed"|"blocked"; due_date?: string; notes?: string; assignee_ids?: string[]; assignee_names?: string[]; assigned?: string[]; type?: "active"|"archived"; tags?: string[]; priority?: number; created_at?: string; };
 export type User = { id: string; email: string; display_name?: string; roles: string[]; };
 export type ProjectMember = { project_id: string; user_id: string; role: string; user_email?: string; user_display_name?: string; };
 
@@ -117,6 +117,8 @@ export const TasksAPI = {
     notes?: string;
     assignee_ids?: string[];
     status?: "todo" | "in_progress" | "completed" | "blocked";
+    tags?: string; // Free text with # separator
+    priority?: number; // Priority 1-10
   }) =>
     api<Task>(`/api/projects/${projectId}/tasks`, {
       method: "POST",

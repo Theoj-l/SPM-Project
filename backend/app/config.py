@@ -33,9 +33,12 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
     
-    # Resend Email settings
-    resend_api_key: str = ""
-    resend_from_email: str = ""
+    # SMTP Email settings (Gmail)
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
     
     # API settings
     api_prefix: str = "/api"

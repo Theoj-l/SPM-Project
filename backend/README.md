@@ -88,6 +88,28 @@ SUPABASE_KEY=your_supabase_api_key
 NODE_ENV=development
 ```
 
+## Email (Gmail SMTP)
+
+The application uses Gmail SMTP for sending emails. To set this up:
+
+1. **Enable 2-Step Verification** on your Google Account (if not already enabled)
+
+2. **Generate an App Password**:
+
+   - Go to your Google Account settings: https://myaccount.google.com/
+   - Navigate to Security → 2-Step Verification → App passwords
+   - Generate a new app password for "Mail"
+   - Copy the 16-character password
+
+3. **Add to `.env` file**:
+   ```
+   SMTP_USERNAME=your_email@gmail.com
+   SMTP_PASSWORD=your_16_character_app_password
+   SMTP_FROM_EMAIL=your_email@gmail.com  # Optional, defaults to SMTP_USERNAME
+   ```
+
+**Note:** You cannot use your regular Gmail password. You must use an App Password generated from your Google Account settings.
+
 ## Development
 
 The server runs with auto-reload enabled in development mode. Any changes to the code will automatically restart the server.

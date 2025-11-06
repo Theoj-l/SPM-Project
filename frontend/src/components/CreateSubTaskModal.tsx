@@ -89,7 +89,9 @@ export default function CreateSubTaskModal({
       newErrors.title = "Title is required";
     }
 
-    if (formData.assignee_ids.length > 5) {
+    if (!formData.assignee_ids || formData.assignee_ids.length === 0) {
+      newErrors.assignees = "At least one assignee is required";
+    } else if (formData.assignee_ids.length > 5) {
       newErrors.assignees = "Maximum 5 assignees allowed";
     }
 
@@ -329,7 +331,7 @@ export default function CreateSubTaskModal({
             {/* Assignees */}
             <div>
               <Label className="text-sm font-medium text-gray-700">
-                Assignees ({formData.assignee_ids.length}/5)
+                Assignees * ({formData.assignee_ids.length}/5)
               </Label>
               <div className="mt-2 space-y-2">
                 {projectMembers.map((member) => (

@@ -41,6 +41,19 @@ import {
 } from "@/components/ui/select";
 import AssigneeSelector from "@/components/AssigneeSelector";
 
+// Helper function to format date in Singapore time
+const formatSingaporeTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleString("en-SG", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 // Recursive Comment Component
 function CommentItem({
   comment,
@@ -81,7 +94,7 @@ function CommentItem({
             <div>
               <p className="font-medium text-gray-900">{comment.author_name}</p>
               <p className="text-sm text-gray-500">
-                {new Date(comment.created_at).toLocaleString()}
+                {formatSingaporeTime(comment.created_at)}
               </p>
             </div>
           </div>
@@ -166,6 +179,7 @@ export default function SubTaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [newComment, setNewComment] = useState("");
   const [addingComment, setAddingComment] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -256,12 +270,20 @@ export default function SubTaskDetailPage() {
   };
 
   const handleSave = async () => {
+    // Validate that at least one assignee is selected
+    if (!formData.assignee_ids || formData.assignee_ids.length === 0) {
+      setError("At least one assignee is required");
+      return;
+    }
+
     try {
       setSaving(true);
+      setError("");
       await SubTasksAPI.update(subtaskId as string, formData);
       await loadData();
       setEditing(false);
-    } catch (error) {
+    } catch (error: any) {
+      setError(error.message || "Failed to update subtask");
       console.error("Error saving subtask:", error);
     } finally {
       setSaving(false);

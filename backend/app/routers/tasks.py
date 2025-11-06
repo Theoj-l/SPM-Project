@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import List
 from app.models.project import (
     TaskOut, 
+    TaskUpdate,
     CommentCreate, 
     CommentOut, 
     SubTaskCreate, 
@@ -26,14 +27,24 @@ async def get_task(task_id: str, user_id: str = Depends(get_current_user_id)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{task_id}", response_model=TaskOut)
-async def update_task(task_id: str, updates: dict, user_id: str = Depends(get_current_user_id)):
-    """Update a task"""
+async def update_task(task_id: str, updates: TaskUpdate, user_id: str = Depends(get_current_user_id)):
+    """Update a task - project cannot be changed, tags can be updated"""
     try:
         task_service = TaskService()
-        task = await task_service.update_task(task_id, updates, user_id)
+        # Convert TaskUpdate to dict, handling None values
+        update_dict = updates.dict(exclude_unset=True)
+        # Convert tags list back to dict format if it was parsed
+        if 'tags' in update_dict and update_dict['tags'] is not None:
+            update_dict['tags'] = update_dict['tags']  # Already parsed as list
+        
+        task = await task_service.update_task(task_id, update_dict, user_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         return task
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
