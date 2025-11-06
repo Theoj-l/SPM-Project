@@ -82,7 +82,7 @@ class SchedulerService:
             
             # Send notifications and emails
             for task, hours_remaining in tasks_to_notify:
-                assignee_ids = task.get("assigned", [])
+                assignee_ids = task.get("assigned") or []
                 if not assignee_ids:
                     continue
                 
@@ -139,7 +139,7 @@ class SchedulerService:
             
             # Send notifications and emails
             for task in overdue_tasks:
-                assignee_ids = task.get("assigned", [])
+                assignee_ids = task.get("assigned") or []
                 if not assignee_ids:
                     continue
                 
@@ -279,7 +279,7 @@ class SchedulerService:
                         relevant_project_ids.add(project_id)
                     else:
                         # User is employee in this project or not a member - only see assigned tasks
-                        assigned = task.get("assigned", [])
+                        assigned = task.get("assigned") or []
                         if user_id in assigned:
                             relevant_tasks.append(task)
                             if project_id:
@@ -314,7 +314,7 @@ class SchedulerService:
                                 "due_date": due_date_str,
                                 "project_id": task.get("project_id"),
                                 "status": task.get("status"),
-                                "assigned": task.get("assigned", [])
+                                "assigned": task.get("assigned") or []
                             })
                         # Check if due soon (within next 48 hours)
                         elif today_start <= due_date <= tomorrow:
@@ -324,7 +324,7 @@ class SchedulerService:
                                 "due_date": due_date_str,
                                 "project_id": task.get("project_id"),
                                 "status": task.get("status"),
-                                "assigned": task.get("assigned", [])
+                                "assigned": task.get("assigned") or []
                             })
                     except (ValueError, TypeError):
                         continue
@@ -350,7 +350,7 @@ class SchedulerService:
                 
                 for task in relevant_tasks:
                     project_id = task.get("project_id") or "unassigned"
-                    assigned = task.get("assigned", [])
+                    assigned = task.get("assigned") or []
                     
                     if project_id not in person_tasks_by_project:
                         person_tasks_by_project[project_id] = {}

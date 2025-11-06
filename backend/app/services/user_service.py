@@ -104,3 +104,48 @@ class UserService:
         except Exception as e:
             print(f"Get user with roles error: {str(e)}")
             return None
+    
+    @staticmethod
+    def get_or_create_user(user_id: str, email: str, display_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get user by ID, or create if doesn't exist.
+        
+        Args:
+            user_id: User's ID from Supabase auth
+            email: User's email address
+            display_name: User's display name (optional)
+            
+        Returns:
+            User information dictionary
+        """
+        try:
+            # First try to get by ID
+            result = SupabaseService.select("users", "*", {"id": user_id})
+            if result and len(result) > 0:
+                return result[0]
+            
+            # If not found, try by email
+            result = SupabaseService.select("users", "*", {"email": email})
+            if result and len(result) > 0:
+                return result[0]
+            
+            # User doesn't exist, create it
+            user_data = {
+                "id": user_id,
+                "email": email,
+                "roles": ["staff"],  # Default role
+            }
+            if display_name:
+                user_data["display_name"] = display_name
+            
+            created_user = SupabaseService.insert("users", user_data)
+            print(f"Created new user in database: {email}")
+            return created_user
+            
+        except Exception as e:
+            print(f"Get or create user error: {str(e)}")
+            # If creation fails, try to get by email one more time (race condition)
+            result = SupabaseService.select("users", "*", {"email": email})
+            if result and len(result) > 0:
+                return result[0]
+            raise

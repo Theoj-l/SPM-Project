@@ -26,19 +26,21 @@ def get_current_user_id(authorization: str = Header(None)) -> str:
         )
     
     user_email = user_data.get("email")
+    user_id_from_token = user_data.get("id")
     if not user_email:
         raise HTTPException(
             status_code=400,
             detail="User email not found"
         )
-    
-    # Get user ID from users table
-    user = UserService.get_user_by_email(user_email)
-    if not user:
+    if not user_id_from_token:
         raise HTTPException(
-            status_code=404,
-            detail="User not found"
+            status_code=400,
+            detail="User ID not found in token"
         )
+    
+    # Get or create user in users table
+    display_name = user_data.get("user_metadata", {}).get("full_name") or user_data.get("user_metadata", {}).get("display_name")
+    user = UserService.get_or_create_user(user_id_from_token, user_email, display_name)
     
     return user["id"]
 
