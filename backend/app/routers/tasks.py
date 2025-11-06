@@ -101,13 +101,18 @@ async def create_comment(
     comment_data: CommentCreate, 
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new comment for a task"""
+    """Create a new comment for a task or subtask"""
     try:
         task_service = TaskService()
         comment = await task_service.create_comment(task_id, comment_data, user_id)
         return comment
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error creating comment: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Error creating comment: {str(e)}")
 
 @router.delete("/comments/{comment_id}")
 async def delete_comment(comment_id: str, user_id: str = Depends(get_current_user_id)):

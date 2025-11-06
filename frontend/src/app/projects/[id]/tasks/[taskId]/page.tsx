@@ -24,6 +24,7 @@ import {
   Trash2,
   MessageSquare,
   CheckSquare,
+  Check,
   Paperclip,
   Plus,
   Calendar,
@@ -46,15 +47,41 @@ import AssigneeSelector from "@/components/AssigneeSelector";
 
 // Helper function to format date in Singapore time
 const formatSingaporeTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  return date.toLocaleString("en-SG", {
-    timeZone: "Asia/Singapore",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  try {
+    // Normalize timestamp: ensure it has timezone info
+    let normalizedDateString = dateString;
+    
+    // If timestamp doesn't have timezone info, assume it's UTC and append 'Z'
+    if (dateString && !dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-', 10)) {
+      // Check if it's a valid ISO format without timezone (e.g., "2023-10-27T12:57:00")
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(dateString)) {
+        normalizedDateString = dateString + 'Z';
+      }
+    }
+    
+    // Parse the date - JavaScript's Date will interpret 'Z' as UTC
+    const date = new Date(normalizedDateString);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.warn("Invalid date string:", dateString);
+      return dateString; // Return original if invalid
+    }
+    
+    // Format in Singapore timezone
+    return date.toLocaleString("en-SG", {
+      timeZone: "Asia/Singapore",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false, // Use 24-hour format
+    });
+  } catch (error) {
+    console.error("Error formatting date:", error, dateString);
+    return dateString;
+  }
 };
 
 // Recursive Comment Component
@@ -63,18 +90,85 @@ function CommentItem({
   user,
   onReply,
   onDelete,
+  onEdit,
   isAdmin,
   isManager,
+  projectMembers,
+  insertMention,
+  mentionSuggestions,
+  showMentionSuggestions,
+  setShowMentionSuggestions,
+  setMentionQuery,
+  selectedMentionIndex,
+  setSelectedMentionIndex,
 }: {
   comment: Comment;
   user: any;
   onReply: (parentId: string, replyText: string) => void;
   onDelete: (commentId: string) => void;
+  onEdit: (commentId: string, content: string) => void;
   isAdmin: (user: any) => boolean;
   isManager: (user: any) => boolean;
+  projectMembers: User[];
+  insertMention: (member: User, targetTextarea?: HTMLTextAreaElement) => void;
+  mentionSuggestions: User[];
+  showMentionSuggestions: boolean;
+  setShowMentionSuggestions: (show: boolean) => void;
+  setMentionQuery: (query: string) => void;
+  selectedMentionIndex: number;
+  setSelectedMentionIndex: (index: number) => void;
 }) {
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(comment.content);
+  const [showReplyMentions, setShowReplyMentions] = useState(false);
+  const [replyMentionQuery, setReplyMentionQuery] = useState("");
+  const [selectedReplyMentionIndex, setSelectedReplyMentionIndex] = useState(0);
+  const isCreator = user?.id === comment.user_id;
+  const canDelete = isCreator || isAdmin(user);
+  const canEdit = isCreator;
+  
+  // Filter mentionable users for replies
+  const replyMentionSuggestions = projectMembers.filter((member) => {
+    if (!replyMentionQuery) return true;
+    const query = replyMentionQuery.toLowerCase();
+    const displayName = (member.display_name || "").toLowerCase();
+    const email = (member.email || "").toLowerCase();
+    return displayName.includes(query) || email.includes(query);
+  }).slice(0, 5);
+  
+  // Insert mention into reply
+  const insertReplyMention = (member: User, textarea: HTMLTextAreaElement) => {
+    const cursorPos = textarea.selectionStart;
+    const textBeforeCursor = replyText.substring(0, cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+    
+    if (lastAtIndex !== -1) {
+      const mentionName = member.display_name || member.email?.split("@")[0] || "Unknown";
+      const newText = 
+        replyText.substring(0, lastAtIndex) + 
+        `@${mentionName} ` + 
+        replyText.substring(cursorPos);
+      setReplyText(newText);
+      setShowReplyMentions(false);
+      setReplyMentionQuery("");
+      setSelectedReplyMentionIndex(0);
+      
+      setTimeout(() => {
+        const newCursorPos = lastAtIndex + mentionName.length + 2;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        textarea.focus();
+      }, 0);
+    }
+  };
+
+  // Update editText when comment content changes
+  useEffect(() => {
+    if (!isEditing) {
+      setEditText(comment.content);
+    }
+  }, [comment.content, isEditing]);
 
   const handleReply = () => {
     if (replyText.trim()) {
@@ -82,6 +176,21 @@ function CommentItem({
       setReplyText("");
       setShowReplyForm(false);
     }
+  };
+
+  const handleEdit = () => {
+    if (editText.trim() && editText !== comment.content) {
+      onEdit(comment.id, editText.trim());
+      setIsEditing(false);
+    } else {
+      setIsEditing(false);
+      setEditText(comment.content);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditText(comment.content);
   };
 
   return (
@@ -102,27 +211,76 @@ function CommentItem({
             <span className="text-xs text-gray-500">
               {formatSingaporeTime(comment.created_at)}
             </span>
-            {(isAdmin(user) || isManager(user)) && (
+            <div className="flex items-center gap-2 ml-auto">
+              {canEdit && !isEditing && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-blue-500 hover:text-blue-700 text-xs"
+                  title="Edit comment"
+                >
+                  <Edit className="h-3 w-3" />
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => onDelete(comment.id)}
+                  className="text-red-500 hover:text-red-700 text-xs"
+                  title={isCreator ? "Delete your comment" : "Delete comment (Admin)"}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+          {isEditing ? (
+            <div className="mb-2">
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                rows={3}
+                autoFocus
+              />
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={handleEdit}
+                  disabled={!editText.trim() || editText === comment.content}
+                  className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1 bg-gray-500 text-white text-xs rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-700 whitespace-pre-wrap mb-2">
+              {comment.content.split(/(@[\w\s]+?)(?=\s|$|[.,!?;:])/).map((part, index) => {
+                if (part.startsWith("@")) {
+                  return (
+                    <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded font-medium">
+                      {part}
+                    </span>
+                  );
+                }
+                return <span key={index}>{part}</span>;
+              })}
+            </p>
+          )}
+          {!isEditing && (
+            <div className="flex items-center gap-4">
               <button
-                onClick={() => onDelete(comment.id)}
-                className="text-red-500 hover:text-red-700 text-xs ml-auto"
-                title="Delete comment (Admin only)"
+                onClick={() => setShowReplyForm(!showReplyForm)}
+                className="text-xs text-blue-600 hover:text-blue-800"
               >
-                <Trash2 className="h-3 w-3" />
+                Reply
               </button>
-            )}
-          </div>
-          <p className="text-sm text-gray-700 whitespace-pre-wrap mb-2">
-            {comment.content}
-          </p>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowReplyForm(!showReplyForm)}
-              className="text-xs text-blue-600 hover:text-blue-800"
-            >
-              Reply
-            </button>
-          </div>
+            </div>
+          )}
 
           {/* Reply Form */}
           {showReplyForm && (
@@ -131,14 +289,83 @@ function CommentItem({
                 <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
                   {user?.email?.charAt(0).toUpperCase()}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 relative">
                   <textarea
                     value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Write a reply..."
+                    onChange={(e) => {
+                      setReplyText(e.target.value);
+                      // Check for @ mentions in reply
+                      const text = e.target.value;
+                      const cursorPos = e.target.selectionStart;
+                      const textBeforeCursor = text.substring(0, cursorPos);
+                      const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+                      
+                      if (lastAtIndex !== -1) {
+                        const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                        if (/^\w*$/.test(textAfterAt)) {
+                          setShowReplyMentions(true);
+                          setReplyMentionQuery(textAfterAt);
+                        } else {
+                          setShowReplyMentions(false);
+                        }
+                      } else {
+                        setShowReplyMentions(false);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (showReplyMentions && replyMentionSuggestions.length > 0) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setSelectedReplyMentionIndex((prev) => 
+                            prev < replyMentionSuggestions.length - 1 ? prev + 1 : prev
+                          );
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setSelectedReplyMentionIndex((prev) => (prev > 0 ? prev - 1 : 0));
+                        } else if (e.key === "Enter" && selectedReplyMentionIndex >= 0) {
+                          e.preventDefault();
+                          insertReplyMention(replyMentionSuggestions[selectedReplyMentionIndex], e.currentTarget);
+                        } else if (e.key === "Escape") {
+                          setShowReplyMentions(false);
+                        }
+                      }
+                    }}
+                    placeholder="Write a reply... Use @ to mention someone"
                     className="w-full p-2 border border-gray-300 rounded-md resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                     rows={2}
                   />
+                  {/* Mention Suggestions for Reply */}
+                  {showReplyMentions && replyMentionSuggestions.length > 0 && (
+                    <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {replyMentionSuggestions.map((member, index) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => {
+                            const textarea = document.querySelector('textarea[placeholder*="Write a reply"]') as HTMLTextAreaElement;
+                            if (textarea) {
+                              insertReplyMention(member, textarea);
+                            }
+                          }}
+                          className={`w-full px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2 text-sm ${
+                            index === selectedReplyMentionIndex ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                            {(member.display_name || member.email || "U").charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium">
+                              {member.display_name || member.email?.split("@")[0] || "Unknown"}
+                            </div>
+                            {member.email && (
+                              <div className="text-xs text-gray-500">{member.email}</div>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-2 mt-2">
                     <button
                       onClick={handleReply}
@@ -151,6 +378,7 @@ function CommentItem({
                       onClick={() => {
                         setShowReplyForm(false);
                         setReplyText("");
+                        setShowReplyMentions(false);
                       }}
                       className="px-3 py-1 bg-gray-500 text-white text-xs rounded-md hover:bg-gray-600"
                     >
@@ -174,8 +402,17 @@ function CommentItem({
               user={user}
               onReply={onReply}
               onDelete={onDelete}
+              onEdit={onEdit}
               isAdmin={isAdmin}
               isManager={isManager}
+              projectMembers={projectMembers}
+              insertMention={insertMention}
+              mentionSuggestions={mentionSuggestions}
+              showMentionSuggestions={showMentionSuggestions}
+              setShowMentionSuggestions={setShowMentionSuggestions}
+              setMentionQuery={setMentionQuery}
+              selectedMentionIndex={selectedMentionIndex}
+              setSelectedMentionIndex={setSelectedMentionIndex}
             />
           ))}
         </div>
@@ -206,6 +443,53 @@ export default function TaskDetailPage() {
   const [newComment, setNewComment] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  
+  // Mention state
+  const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  
+  // Filter mentionable users based on query
+  const mentionSuggestions = projectMembers.filter((member) => {
+    if (!mentionQuery) return true;
+    const query = mentionQuery.toLowerCase();
+    const displayName = (member.display_name || "").toLowerCase();
+    const email = (member.email || "").toLowerCase();
+    return displayName.includes(query) || email.includes(query);
+  }).slice(0, 5); // Limit to 5 suggestions
+  
+  // Insert mention into comment (works for both main comment and replies)
+  const insertMention = (member: User, targetTextarea?: HTMLTextAreaElement) => {
+    const textarea = targetTextarea || (document.querySelector('textarea[placeholder*="mention"]') as HTMLTextAreaElement);
+    if (!textarea) return;
+    
+    const isReply = textarea !== document.querySelector('textarea[placeholder*="Add a comment"]');
+    const currentText = isReply ? replyText : newComment;
+    const setText = isReply ? setReplyText : setNewComment;
+    
+    const cursorPos = textarea.selectionStart;
+    const textBeforeCursor = currentText.substring(0, cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+    
+    if (lastAtIndex !== -1) {
+      const mentionName = member.display_name || member.email?.split("@")[0] || "Unknown";
+      const newText = 
+        currentText.substring(0, lastAtIndex) + 
+        `@${mentionName} ` + 
+        currentText.substring(cursorPos);
+      setText(newText);
+      setShowMentionSuggestions(false);
+      setMentionQuery("");
+      setSelectedMentionIndex(0);
+      
+      // Set cursor position after the mention
+      setTimeout(() => {
+        const newCursorPos = lastAtIndex + mentionName.length + 2; // +2 for @ and space
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        textarea.focus();
+      }, 0);
+    }
+  };
 
   // Sub-comment state
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -454,7 +738,14 @@ export default function TaskDetailPage() {
 
     try {
       const comment = await CommentsAPI.create(task.id, newComment.trim());
-      setComments([...comments, comment]);
+      // Ensure comment has proper structure with empty replies array
+      const newCommentWithReplies: Comment = {
+        ...comment,
+        replies: comment.replies || [],
+        user_display_name: comment.user_display_name || user?.display_name,
+        user_email: comment.user_email || user?.email,
+      };
+      setComments([...comments, newCommentWithReplies]);
       setNewComment("");
     } catch (err: any) {
       setError("Failed to add comment");
@@ -466,37 +757,116 @@ export default function TaskDetailPage() {
     if (!replyText.trim() || !task) return;
 
     try {
-      console.log("Adding reply to parent comment:", parentCommentId);
       const reply = await CommentsAPI.create(
         task.id,
         replyText.trim(),
         parentCommentId
       );
-      console.log("Reply created:", reply);
-      // Reload all comments to get the proper nested structure
-      const updatedComments = await CommentsAPI.list(task.id);
-      console.log("Updated comments:", updatedComments);
-      setComments(updatedComments);
+      
+      // Ensure reply has proper structure
+      const newReply: Comment = {
+        ...reply,
+        replies: [],
+        user_display_name: reply.user_display_name || user?.display_name,
+        user_email: reply.user_email || user?.email,
+      };
+      
+      // Immediately add reply to parent comment's replies array
+      setComments(comments.map(comment => {
+        if (comment.id === parentCommentId) {
+          return {
+            ...comment,
+            replies: [...(comment.replies || []), newReply],
+          };
+        }
+        // Also check nested replies
+        if (comment.replies) {
+          return {
+            ...comment,
+            replies: comment.replies.map(replyItem => {
+              if (replyItem.id === parentCommentId) {
+                return {
+                  ...replyItem,
+                  replies: [...(replyItem.replies || []), newReply],
+                };
+              }
+              return replyItem;
+            }),
+          };
+        }
+        return comment;
+      }));
     } catch (err: any) {
       console.error("Error adding reply:", err);
       setError("Failed to add reply");
     }
   };
 
-  // Delete comment (admin only)
+  // Delete comment (creator or admin only)
   const deleteComment = async (commentId: string) => {
-    if (!isAdmin(user) && !isManager(user)) {
-      setError("Only admins can delete comments");
+    const comment = comments.find((c) => c.id === commentId) || 
+                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
+    
+    if (!comment) {
+      setError("Comment not found");
+      return;
+    }
+
+    const isCreator = user?.id === comment.user_id;
+    if (!isCreator && !isAdmin(user)) {
+      setError("Only the comment creator or admin can delete comments");
       return;
     }
 
     try {
       await CommentsAPI.delete(commentId);
-      setComments((prevComments) =>
-        prevComments.filter((comment) => comment.id !== commentId)
-      );
+      // Remove comment from list (including nested replies)
+      const removeComment = (commentList: Comment[]): Comment[] => {
+        return commentList
+          .filter((c) => c.id !== commentId)
+          .map((c) => ({
+            ...c,
+            replies: c.replies ? removeComment(c.replies) : undefined,
+          }));
+      };
+      setComments(removeComment(comments));
     } catch (err: any) {
       setError("Failed to delete comment");
+    }
+  };
+
+  // Edit comment (creator only)
+  const editComment = async (commentId: string, content: string) => {
+    const comment = comments.find((c) => c.id === commentId) || 
+                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
+    
+    if (!comment) {
+      setError("Comment not found");
+      return;
+    }
+
+    if (user?.id !== comment.user_id) {
+      setError("Only the comment creator can edit comments");
+      return;
+    }
+
+    try {
+      const updatedComment = await CommentsAPI.update(commentId, content);
+      // Update comment in list (including nested replies)
+      const updateComment = (commentList: Comment[]): Comment[] => {
+        return commentList.map((c) => {
+          if (c.id === commentId) {
+            return { ...updatedComment, replies: c.replies };
+          }
+          return {
+            ...c,
+            replies: c.replies ? updateComment(c.replies) : undefined,
+          };
+        });
+      };
+      setComments(updateComment(comments));
+    } catch (err: any) {
+      setError("Failed to update comment");
     }
   };
 
@@ -731,15 +1101,83 @@ export default function TaskDetailPage() {
                   <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
                     {user?.email?.charAt(0).toUpperCase()}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 relative">
                     <textarea
                       value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder="Add a comment..."
+                      onChange={(e) => {
+                        setNewComment(e.target.value);
+                        // Check for @ mentions
+                        const text = e.target.value;
+                        const cursorPos = e.target.selectionStart;
+                        const textBeforeCursor = text.substring(0, cursorPos);
+                        const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+                        
+                        if (lastAtIndex !== -1) {
+                          const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                          // If @ is followed by word characters, show mention suggestions
+                          if (/^\w*$/.test(textAfterAt)) {
+                            setShowMentionSuggestions(true);
+                            setMentionQuery(textAfterAt);
+                          } else {
+                            setShowMentionSuggestions(false);
+                          }
+                        } else {
+                          setShowMentionSuggestions(false);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (showMentionSuggestions && mentionSuggestions.length > 0) {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setSelectedMentionIndex((prev) => 
+                              prev < mentionSuggestions.length - 1 ? prev + 1 : prev
+                            );
+                          } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setSelectedMentionIndex((prev) => (prev > 0 ? prev - 1 : 0));
+                          } else if (e.key === "Enter" && selectedMentionIndex >= 0) {
+                            e.preventDefault();
+                            insertMention(mentionSuggestions[selectedMentionIndex]);
+                          } else if (e.key === "Escape") {
+                            setShowMentionSuggestions(false);
+                          }
+                        }
+                      }}
+                      placeholder="Add a comment... Use @ to mention someone"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
                       rows={3}
                     />
-                    <div className="flex justify-end mt-2">
+                    {/* Mention Suggestions */}
+                    {showMentionSuggestions && mentionSuggestions.length > 0 && (
+                      <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+                        {mentionSuggestions.map((member, index) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => insertMention(member)}
+                            className={`w-full px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2 text-sm ${
+                              index === selectedMentionIndex ? "bg-blue-50" : ""
+                            }`}
+                          >
+                            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                              {(member.display_name || member.email || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-medium">
+                                {member.display_name || member.email?.split("@")[0] || "Unknown"}
+                              </div>
+                              {member.email && (
+                                <div className="text-xs text-gray-500">{member.email}</div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
+                      <p className="text-xs text-gray-500">
+                        Type @ to mention someone. They'll receive an email notification.
+                      </p>
                       <button
                         onClick={addComment}
                         disabled={!newComment.trim()}
@@ -766,8 +1204,17 @@ export default function TaskDetailPage() {
                           addReply(parentId, replyText)
                         }
                         onDelete={deleteComment}
+                        onEdit={editComment}
                         isAdmin={isAdmin}
                         isManager={isManager}
+                        projectMembers={projectMembers}
+                        insertMention={insertMention}
+                        mentionSuggestions={mentionSuggestions}
+                        showMentionSuggestions={showMentionSuggestions}
+                        setShowMentionSuggestions={setShowMentionSuggestions}
+                        setMentionQuery={setMentionQuery}
+                        selectedMentionIndex={selectedMentionIndex}
+                        setSelectedMentionIndex={setSelectedMentionIndex}
                       />
                     ))}
                 </div>
@@ -784,18 +1231,49 @@ export default function TaskDetailPage() {
           </div>
 
           {/* Sub-tasks */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <CheckSquare className="h-5 w-5" />
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Sub-tasks ({subtasks.length})
-                </h2>
+          <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-50 rounded-lg">
+                  <CheckSquare className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Sub-tasks
+                  </h2>
+                  {subtasks.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">
+                          {subtasks.filter((st) => st.status === "completed").length}
+                        </span>
+                        <span>of</span>
+                        <span className="font-medium text-gray-700">
+                          {subtasks.length}
+                        </span>
+                        <span>completed</span>
+                      </div>
+                      <div className="h-1.5 w-24 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-green-500 transition-all duration-300"
+                          style={{
+                            width: `${
+                              (subtasks.filter((st) => st.status === "completed")
+                                .length /
+                                subtasks.length) *
+                              100
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               {canEditTask() && (
                 <button
                   onClick={() => setShowSubTaskModal(true)}
-                  className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md text-sm font-medium"
                 >
                   <Plus className="h-4 w-4" />
                   Add Sub-task
@@ -805,64 +1283,187 @@ export default function TaskDetailPage() {
 
             {subtasks.length > 0 ? (
               <div className="space-y-3">
-                {subtasks.map((subtask) => (
-                  <div
-                    key={subtask.id}
-                    className="flex items-center gap-3 p-3 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    <Select
-                      value={subtask.status}
-                      onValueChange={(value: SubTask["status"]) =>
-                        updateSubtaskStatus(subtask.id, value)
-                      }
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todo">To Do</SelectItem>
-                        <SelectItem value="in_progress">In Progress</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                        <SelectItem value="blocked">Blocked</SelectItem>
-                      </SelectContent>
-                    </Select>
+                {subtasks.map((subtask) => {
+                  const getStatusConfig = (status: SubTask["status"]) => {
+                    switch (status) {
+                      case "completed":
+                        return {
+                          color: "bg-green-50 border-green-200",
+                          icon: "✓",
+                          iconColor: "text-green-600",
+                          badgeColor: "bg-green-100 text-green-700",
+                        };
+                      case "in_progress":
+                        return {
+                          color: "bg-blue-50 border-blue-200",
+                          icon: "⟳",
+                          iconColor: "text-blue-600",
+                          badgeColor: "bg-blue-100 text-blue-700",
+                        };
+                      case "blocked":
+                        return {
+                          color: "bg-red-50 border-red-200",
+                          icon: "⚠",
+                          iconColor: "text-red-600",
+                          badgeColor: "bg-red-100 text-red-700",
+                        };
+                      default:
+                        return {
+                          color: "bg-gray-50 border-gray-200",
+                          icon: "○",
+                          iconColor: "text-gray-600",
+                          badgeColor: "bg-gray-100 text-gray-700",
+                        };
+                    }
+                  };
+                  const statusConfig = getStatusConfig(subtask.status);
 
+                  return (
                     <div
-                      className="flex-1 cursor-pointer"
-                      onClick={() =>
-                        router.push(
-                          `/projects/${projectId}/tasks/${taskId}/subtasks/${subtask.id}`
-                        )
-                      }
+                      key={subtask.id}
+                      className={`group relative flex items-start gap-4 p-4 border-2 rounded-lg transition-all duration-200 hover:shadow-md ${statusConfig.color}`}
                     >
-                      <h4 className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors">
-                        {subtask.title}
-                      </h4>
-                      {subtask.description && (
-                        <p className="text-xs text-gray-600 mt-1">
-                          {subtask.description}
-                        </p>
+                      {/* Status Checkbox/Icon */}
+                      <div className="flex-shrink-0 pt-0.5">
+                        <button
+                          onClick={() => {
+                            const newStatus: SubTask["status"] =
+                              subtask.status === "completed"
+                                ? "todo"
+                                : "completed";
+                            updateSubtaskStatus(subtask.id, newStatus);
+                          }}
+                          className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${
+                            subtask.status === "completed"
+                              ? "bg-green-500 border-green-500 text-white"
+                              : "bg-white border-gray-300 hover:border-green-400"
+                          }`}
+                        >
+                          {subtask.status === "completed" && (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Content */}
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() =>
+                          router.push(
+                            `/projects/${projectId}/tasks/${taskId}/subtasks/${subtask.id}`
+                          )
+                        }
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <h4
+                              className={`text-sm font-semibold mb-1 transition-colors ${
+                                subtask.status === "completed"
+                                  ? "line-through text-gray-500"
+                                  : "text-gray-900 group-hover:text-blue-600"
+                              }`}
+                            >
+                              {subtask.title}
+                            </h4>
+                            {subtask.description && (
+                              <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                                {subtask.description}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-3 mt-2">
+                              {/* Status Badge */}
+                              <Select
+                                value={subtask.status}
+                                onValueChange={(value: SubTask["status"]) =>
+                                  updateSubtaskStatus(subtask.id, value)
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <SelectTrigger className={`h-7 w-28 text-xs ${statusConfig.badgeColor} border-0`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="todo">To Do</SelectItem>
+                                  <SelectItem value="in_progress">
+                                    In Progress
+                                  </SelectItem>
+                                  <SelectItem value="completed">
+                                    Completed
+                                  </SelectItem>
+                                  <SelectItem value="blocked">Blocked</SelectItem>
+                                </SelectContent>
+                              </Select>
+
+                              {/* Assignees */}
+                              {subtask.assignee_names &&
+                                subtask.assignee_names.length > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <UserIcon className="h-3 w-3 text-gray-400" />
+                                    <span className="text-xs text-gray-500">
+                                      {subtask.assignee_names.length}{" "}
+                                      {subtask.assignee_names.length === 1
+                                        ? "assignee"
+                                        : "assignees"}
+                                    </span>
+                                  </div>
+                                )}
+
+                              {/* Due Date */}
+                              {subtask.due_date && (
+                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(subtask.due_date).toLocaleDateString(
+                                    "en-US",
+                                    {
+                                      month: "short",
+                                      day: "numeric",
+                                    }
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      {canEditTask() && (
+                        <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSubtask(subtask.id);
+                            }}
+                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete subtask"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       )}
                     </div>
-
-                    {canEditTask() && (
-                      <button
-                        onClick={() => deleteSubtask(subtask.id)}
-                        className="text-red-600 hover:text-red-800 text-sm"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                <CheckSquare className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                <p className="text-sm">No sub-tasks yet</p>
-                <p className="text-xs text-gray-400">
-                  Break down this task into smaller pieces
+              <div className="text-center py-12 text-gray-500">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckSquare className="h-8 w-8 text-gray-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-700 mb-1">
+                  No sub-tasks yet
                 </p>
+                <p className="text-xs text-gray-400">
+                  Break down this task into smaller, manageable pieces
+                </p>
+                {canEditTask() && (
+                  <button
+                    onClick={() => setShowSubTaskModal(true)}
+                    className="mt-4 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                  >
+                    Create your first sub-task
+                  </button>
+                )}
               </div>
             )}
           </div>

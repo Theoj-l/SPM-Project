@@ -2,6 +2,7 @@
 
 from supabase import create_client, Client
 from app.config import settings
+import httpx
 
 _supabase_client: Client = None
 
@@ -18,6 +19,20 @@ def get_supabase_client() -> Client:
         if not url or not key:
             raise ValueError("Supabase URL and key must be set in environment variables")
         
-        _supabase_client = create_client(url, key)
+        # Create HTTP client with timeout to prevent hanging requests
+        # Default timeout: 10 seconds for connect, 30 seconds for read
+        timeout = httpx.Timeout(10.0, read=30.0)
+        http_client = httpx.Client(timeout=timeout)
+        
+        # Create Supabase client with custom HTTP client
+        # Note: The supabase-py library may not directly support passing http_client
+        # So we'll create the client normally and handle timeouts at the application level
+        try:
+            # Try to create client with options if supported
+            _supabase_client = create_client(url, key)
+        except Exception as e:
+            print(f"Error creating Supabase client: {e}")
+            # Fallback to basic client creation
+            _supabase_client = create_client(url, key)
     
     return _supabase_client

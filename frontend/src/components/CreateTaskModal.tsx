@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, FileText, Users, AlertCircle } from "lucide-react";
 import { User } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import AssigneeSelector from "./AssigneeSelector";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
@@ -46,6 +47,7 @@ export default function CreateTaskModal({
   users,
   isLoading = false,
 }: CreateTaskModalProps) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<TaskFormData>({
     title: "",
     description: "",
@@ -66,6 +68,7 @@ export default function CreateTaskModal({
     undefined
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [hasInitializedAssignees, setHasInitializedAssignees] = useState(false);
 
   const handleInputChange = (
     field: keyof TaskFormData,
@@ -94,10 +97,24 @@ export default function CreateTaskModal({
       newErrors.title = "Title is required";
     }
 
-    // Assignees are optional - creator will be added as default
+    // Assignees required
+    if (!formData.assignee_ids || formData.assignee_ids.length === 0) {
+      newErrors.assignee_ids = "At least one assignee is required";
+    }
 
     if (dueDate && dueDate < new Date(new Date().setHours(0, 0, 0, 0))) {
       newErrors.due_date = "Due date cannot be in the past";
+    }
+
+    // Priority required (1-10)
+    if (
+      formData.priority === undefined ||
+      formData.priority === null ||
+      Number.isNaN(formData.priority) ||
+      formData.priority < 1 ||
+      formData.priority > 10
+    ) {
+      newErrors.priority = "Priority is required (1-10)";
     }
 
     // Validate recurring tasks require end date
@@ -180,8 +197,20 @@ export default function CreateTaskModal({
     setDueDate(undefined);
     setRecurringEndDate(undefined);
     setErrors({});
+    setHasInitializedAssignees(false);
     onClose();
   };
+
+  // Auto-select creator as default assignee when modal first opens
+  useEffect(() => {
+    if (isOpen && user?.id && !hasInitializedAssignees) {
+      setFormData((prev) => ({ ...prev, assignee_ids: [user.id] }));
+      setHasInitializedAssignees(true);
+    } else if (!isOpen) {
+      // Reset the flag when modal closes so creator is pre-selected again on next open
+      setHasInitializedAssignees(false);
+    }
+  }, [isOpen, user?.id, hasInitializedAssignees]);
 
   if (!isOpen) return null;
 
@@ -307,11 +336,10 @@ export default function CreateTaskModal({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <Users className="h-4 w-4 inline mr-1" />
-                Additional Assignees (Optional)
+                Assignees *
               </label>
               <p className="text-xs text-gray-500 mb-2">
-                You will be added as the default assignee. Add more assignees if
-                needed.
+                Creator is preselected. You can change or add more.
               </p>
               <AssigneeSelector
                 users={users}
@@ -376,13 +404,13 @@ export default function CreateTaskModal({
             {/* Priority */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Priority (1-10)
+                Priority * (1-10)
               </label>
               <input
                 type="number"
                 min="1"
                 max="10"
-                value={formData.priority || ""}
+                value={formData.priority ?? ""}
                 onChange={(e) => {
                   const value =
                     e.target.value === ""
@@ -392,11 +420,19 @@ export default function CreateTaskModal({
                     handleInputChange("priority", value);
                   }
                 }}
-                placeholder="Optional: 1 (lowest) to 10 (highest)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="1 (lowest) to 10 (highest)"
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.priority ? "border-red-300" : "border-gray-300"
+                }`}
               />
+              {errors.priority && (
+                <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {errors.priority}
+                </p>
+              )}
               <p className="text-xs text-gray-500 mt-1">
-                Priority level from 1 (lowest) to 10 (highest)
+                Required. Choose 1 (lowest) to 10 (highest)
               </p>
             </div>
 

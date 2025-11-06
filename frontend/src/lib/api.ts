@@ -15,11 +15,20 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+  } catch (error) {
+    // Handle network errors (server not running, CORS, etc.)
+    console.error(`Network error fetching ${API_BASE}${path}:`, error);
+    throw new Error(
+      `Failed to connect to backend server. Please ensure the backend is running at ${API_BASE}`
+    );
+  }
   
   if (!res.ok) {
     // If unauthorized, clear the token and redirect to login
@@ -202,6 +211,9 @@ export type SubTask = {
   assignee_ids?: string[];
   assignee_names?: string[];
   tags?: string[];
+  due_date?: string;
+  notes?: string;
+  priority?: number;
   created_at?: string;
 };
 

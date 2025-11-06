@@ -41,18 +41,26 @@ class ProjectService:
 
     @staticmethod
     def list_for_user(user_id: str, include_archived: bool = False) -> List[Dict[str, Any]]:
-        # find projects where user is member (owner or collaborator/manager/viewer)
-        memberships = SupabaseService.select(
-            "project_members", filters={"user_id": user_id}
-        )
-        project_ids = [m["project_id"] for m in memberships]
-        if not project_ids:
+        try:
+            # find projects where user is member (owner or collaborator/manager/viewer)
+            memberships = SupabaseService.select(
+                "project_members", filters={"user_id": user_id}
+            )
+            if not memberships:
+                return []
+            
+            project_ids = [m["project_id"] for m in memberships]
+            if not project_ids:
+                return []
+            
+            # Get projects (active ones and those without status set)
+            client = SupabaseService.get_client()
+            rows = client.table("projects").select("*").in_("id", project_ids).order("created_at", desc=True).execute()
+            projects = rows.data or []
+        except Exception as e:
+            print(f"Error fetching projects for user {user_id}: {e}")
+            # Return empty list on error to prevent blocking the login
             return []
-        
-        # Get projects (active ones and those without status set)
-        client = SupabaseService.get_client()
-        rows = client.table("projects").select("*").in_("id", project_ids).order("created_at", desc=True).execute()
-        projects = rows.data or []
         
         # Filter projects based on include_archived parameter
         if include_archived:
@@ -68,12 +76,16 @@ class ProjectService:
         # Fetch owner information from users table
         owner_info = {}
         if owner_ids:
-            owner_rows = client.table("users").select("id, display_name, email").in_("id", owner_ids).execute()
-            for owner in owner_rows.data or []:
-                owner_info[owner["id"]] = {
-                    "display_name": owner.get("display_name"),
-                    "email": owner.get("email")
-                }
+            try:
+                owner_rows = client.table("users").select("id, display_name, email").in_("id", owner_ids).execute()
+                for owner in owner_rows.data or []:
+                    owner_info[owner["id"]] = {
+                        "display_name": owner.get("display_name"),
+                        "email": owner.get("email")
+                    }
+            except Exception as e:
+                print(f"Error fetching owner information: {e}")
+                # Continue without owner info if query fails
         
         # Add user's role and owner display name to each project
         for project in projects:
@@ -291,7 +303,8 @@ class ProjectService:
                         user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
                         task_title=title,
                         task_id=task_id,
-                        project_name=project_name
+                        project_name=project_name,
+                        project_id=project_id
                     )
 
     @staticmethod
@@ -348,25 +361,42 @@ class ProjectService:
         client = get_supabase_client()
         
         # Get user's roles and department
-        user_result = client.table("users").select("id, department_id, roles").eq("id", user_id).execute()
-        if not user_result.data:
-            return []  # User not found
-        
-        user_data = user_result.data[0]
-        user_roles = user_data.get("roles", [])
-        if isinstance(user_roles, str):
-            user_roles = [r.strip().lower() for r in user_roles.split(",")]
-        elif isinstance(user_roles, list):
-            user_roles = [r.lower() for r in user_roles]
-        
-        # Managers can see all tasks
-        if "manager" in user_roles:
+        try:
+            # First try to get user with department_id
+            try:
+                user_result = client.table("users").select("id, department_id, roles").eq("id", user_id).execute()
+                has_department_column = True
+            except Exception:
+                # department_id column doesn't exist - fall back to basic query
+                user_result = client.table("users").select("id, roles").eq("id", user_id).execute()
+                has_department_column = False
+            
+            if not user_result.data:
+                return []  # User not found
+            
+            user_data = user_result.data[0]
+            user_roles = user_data.get("roles", [])
+            if isinstance(user_roles, str):
+                user_roles = [r.strip().lower() for r in user_roles.split(",")]
+            elif isinstance(user_roles, list):
+                user_roles = [r.lower() for r in user_roles]
+            
+            # Managers can see all tasks
+            if "manager" in user_roles:
+                return tasks
+            
+            # If department_id column doesn't exist, use assignment-based filtering
+            if not has_department_column:
+                # User has no department - can only see tasks they're assigned to
+                return [task for task in tasks if task.get("assigned") and user_id in task.get("assigned", [])]
+            
+            user_department_id = user_data.get("department_id")
+            if not user_department_id:
+                # User has no department - can only see tasks they're assigned to
+                return [task for task in tasks if task.get("assigned") and user_id in task.get("assigned", [])]
+        except Exception:
+            # If query fails, return all tasks (fallback)
             return tasks
-        
-        user_department_id = user_data.get("department_id")
-        if not user_department_id:
-            # User has no department - can only see tasks they're assigned to
-            return [task for task in tasks if task.get("assigned") and user_id in task.get("assigned", [])]
         
         # Get all departments that report to user's department (including user's department)
         accessible_department_ids = {user_department_id}
