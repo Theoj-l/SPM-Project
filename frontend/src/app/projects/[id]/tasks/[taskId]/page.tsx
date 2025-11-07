@@ -127,10 +127,6 @@ function CommentItem({
   onReply: (parentId: string, replyText: string) => void;
   onDelete: (commentId: string) => void;
   onEdit: (commentId: string, content: string) => void;
-<<<<<<< Updated upstream
-  isAdmin: (user: any) => boolean;
-  isManager: (user: any) => boolean;
-=======
   isAdmin: (
     user: {
       id: string;
@@ -147,7 +143,6 @@ function CommentItem({
       roles?: string[];
     } | null
   ) => boolean;
->>>>>>> Stashed changes
   projectMembers: User[];
   insertMention: (member: User, targetTextarea?: HTMLTextAreaElement) => void;
   mentionSuggestions: User[];
@@ -887,7 +882,7 @@ export default function TaskDetailPage() {
       const newCommentWithReplies: Comment = {
         ...comment,
         replies: comment.replies || [],
-        user_display_name: comment.user_display_name || user?.display_name,
+        user_display_name: comment.user_display_name || user?.full_name,
         user_email: comment.user_email || user?.email,
       };
       setComments([...comments, newCommentWithReplies]);
@@ -912,38 +907,11 @@ export default function TaskDetailPage() {
       const newReply: Comment = {
         ...reply,
         replies: [],
-        user_display_name: reply.user_display_name || user?.display_name,
+        user_display_name: reply.user_display_name || user?.full_name,
         user_email: reply.user_email || user?.email,
       };
 
       // Immediately add reply to parent comment's replies array
-<<<<<<< Updated upstream
-      setComments(comments.map(comment => {
-        if (comment.id === parentCommentId) {
-          return {
-            ...comment,
-            replies: [...(comment.replies || []), newReply],
-          };
-        }
-        // Also check nested replies
-        if (comment.replies) {
-          return {
-            ...comment,
-            replies: comment.replies.map(replyItem => {
-              if (replyItem.id === parentCommentId) {
-                return {
-                  ...replyItem,
-                  replies: [...(replyItem.replies || []), newReply],
-                };
-              }
-              return replyItem;
-            }),
-          };
-        }
-        return comment;
-      }));
-    } catch (err: any) {
-=======
       setComments(
         comments.map((comment) => {
           if (comment.id === parentCommentId) {
@@ -971,7 +939,6 @@ export default function TaskDetailPage() {
         })
       );
     } catch (err: unknown) {
->>>>>>> Stashed changes
       console.error("Error adding reply:", err);
       setError("Failed to add reply");
     }
@@ -1403,12 +1370,8 @@ export default function TaskDetailPage() {
                       )}
                     <div className="flex items-center justify-between mt-2">
                       <p className="text-xs text-gray-500">
-<<<<<<< Updated upstream
-                        Type @ to mention someone. They'll receive an email notification.
-=======
                         Type @ to mention someone. They&apos;ll receive an email
                         notification.
->>>>>>> Stashed changes
                       </p>
                       <button
                         onClick={addComment}
@@ -1608,31 +1571,32 @@ export default function TaskDetailPage() {
                             )}
                             <div className="flex items-center gap-3 mt-2">
                               {/* Status Badge */}
-                              <Select
-                                value={subtask.status}
-                                onValueChange={(value: SubTask["status"]) =>
-                                  updateSubtaskStatus(subtask.id, value)
-                                }
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <SelectTrigger
-                                  className={`h-7 w-28 text-xs ${statusConfig.badgeColor} border-0`}
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <Select
+                                  value={subtask.status}
+                                  onValueChange={(value: SubTask["status"]) =>
+                                    updateSubtaskStatus(subtask.id, value)
+                                  }
                                 >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="todo">To Do</SelectItem>
-                                  <SelectItem value="in_progress">
-                                    In Progress
-                                  </SelectItem>
-                                  <SelectItem value="completed">
-                                    Completed
-                                  </SelectItem>
-                                  <SelectItem value="blocked">
-                                    Blocked
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
+                                  <SelectTrigger
+                                    className={`h-7 w-28 text-xs ${statusConfig.badgeColor} border-0`}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="todo">To Do</SelectItem>
+                                    <SelectItem value="in_progress">
+                                      In Progress
+                                    </SelectItem>
+                                    <SelectItem value="completed">
+                                      Completed
+                                    </SelectItem>
+                                    <SelectItem value="blocked">
+                                      Blocked
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
 
                               {/* Assignees */}
                               {subtask.assignee_names &&
