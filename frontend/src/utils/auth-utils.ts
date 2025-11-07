@@ -28,6 +28,8 @@ export const checkAuthData = () => {
 
 // Make functions available globally for console debugging
 if (typeof window !== 'undefined') {
-  (window as any).clearAuthData = clearAuthData;
-  (window as any).checkAuthData = checkAuthData;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const win = window as any;
+  win.clearAuthData = clearAuthData;
+  win.checkAuthData = checkAuthData;
 }

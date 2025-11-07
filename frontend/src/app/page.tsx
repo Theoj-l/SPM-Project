@@ -39,7 +39,7 @@ export default function Home() {
       setLoadingProjects(true);
       const data = await ProjectsAPI.list();
       setProjects(data);
-    } catch (err: any) {
+    } catch {
       setError("Failed to load projects");
     } finally {
       setLoadingProjects(false);
@@ -52,7 +52,7 @@ export default function Home() {
       setLoadingProjects(true);
       const data = await ProjectsAPI.listAll(true); // Include archived
       setAllProjects(data);
-    } catch (err: any) {
+    } catch {
       setError("Failed to load all projects");
     } finally {
       setLoadingProjects(false);
@@ -108,8 +108,8 @@ export default function Home() {
       setProjectName("");
       setShowCreateProject(false);
       await loadProjects();
-    } catch (err: any) {
-      setError(err.message || "Failed to create project");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
       setLoading(false);
     }
@@ -129,8 +129,8 @@ export default function Home() {
       await ProjectsAPI.archive(deleteDialog.project.id);
       await loadProjects();
       setDeleteDialog({ isOpen: false, project: null });
-    } catch (err: any) {
-      setError(err.message || "Failed to archive project");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to archive project");
     } finally {
       setLoading(false);
     }

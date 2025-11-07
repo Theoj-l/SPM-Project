@@ -37,7 +37,7 @@ export default function NotificationsPage() {
       
       setHasMore(data.length === limit);
       setOffset(currentOffset + data.length);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load notifications:", err);
     } finally {
       setLoading(false);

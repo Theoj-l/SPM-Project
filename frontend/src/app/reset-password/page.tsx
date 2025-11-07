@@ -356,7 +356,7 @@ export default function ResetPasswordPage() {
       } else {
         toast.error("Failed to reset password");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Password reset error:", err);
       toast.error("Failed to reset password");
     } finally {

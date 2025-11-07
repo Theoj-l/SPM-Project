@@ -43,7 +43,7 @@ export default function ProjectMemberManager({
     try {
       const data = await ProjectsAPI.getMembers(projectId);
       setMembers(data);
-    } catch (err: any) {
+    } catch {
       setError("Failed to load project members");
     }
   };
@@ -63,7 +63,7 @@ export default function ProjectMemberManager({
         (user) => !existingMemberIds.includes(user.id)
       );
       setSearchResults(filteredData);
-    } catch (err: any) {
+    } catch {
       setError("Failed to search users");
     }
   };
@@ -81,8 +81,8 @@ export default function ProjectMemberManager({
       setShowAddMember(false);
       setSearchQuery("");
       setSearchResults([]);
-    } catch (err: any) {
-      setError(err.message || "Failed to add member");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to add member");
     } finally {
       setLoading(false);
     }
@@ -94,8 +94,8 @@ export default function ProjectMemberManager({
       setLoading(true);
       await ProjectsAPI.updateMemberRole(projectId, memberId, newRole);
       await loadMembers(); // Reload members
-    } catch (err: any) {
-      setError(err.message || "Failed to update member role");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update member role");
     } finally {
       setLoading(false);
     }
@@ -115,8 +115,8 @@ export default function ProjectMemberManager({
       await ProjectsAPI.removeMember(projectId, deleteDialog.member.user_id);
       await loadMembers();
       setDeleteDialog({ isOpen: false, member: null });
-    } catch (err: any) {
-      setError(err.message || "Failed to remove member");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to remove member");
     } finally {
       setLoading(false);
     }

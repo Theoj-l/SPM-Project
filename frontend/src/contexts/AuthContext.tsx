@@ -298,18 +298,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         toast.error("Login failed");
         return false;
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Login error:", error);
       // Handle network errors (failed to fetch)
       if (
-        error?.message?.includes("Failed to fetch") ||
-        error?.name === "TypeError"
+        (error instanceof Error && error.message?.includes("Failed to fetch")) ||
+        (error instanceof Error && error.name === "TypeError")
       ) {
         toast.error(
           "Cannot connect to server. Please ensure the backend is running."
         );
       } else {
-        toast.error(error?.message || "Login failed");
+        toast.error(error instanceof Error ? error.message : "Login failed");
       }
       return false;
     }

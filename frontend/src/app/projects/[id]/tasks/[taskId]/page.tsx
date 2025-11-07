@@ -113,12 +113,12 @@ function CommentItem({
   setSelectedMentionIndex,
 }: {
   comment: Comment;
-  user: any;
+  user: { id: string; email: string; full_name?: string } | null;
   onReply: (parentId: string, replyText: string) => void;
   onDelete: (commentId: string) => void;
   onEdit: (commentId: string, content: string) => void;
-  isAdmin: (user: any) => boolean;
-  isManager: (user: any) => boolean;
+  isAdmin: (user: { id: string; email: string; full_name?: string; roles?: string[] } | null) => boolean;
+  isManager: (user: { id: string; email: string; full_name?: string; roles?: string[] } | null) => boolean;
   projectMembers: User[];
   insertMention: (member: User, targetTextarea?: HTMLTextAreaElement) => void;
   mentionSuggestions: User[];
@@ -596,7 +596,7 @@ export default function TaskDetailPage() {
       setProject(foundProject);
 
       // Convert project members data to User format for AssigneeSelector
-      const members: User[] = projectMembersData.map((member: any) => ({
+      const members: User[] = projectMembersData.map((member) => ({
         id: member.user_id,
         email: member.user_email,
         display_name: member.user_display_name,
@@ -640,7 +640,7 @@ export default function TaskDetailPage() {
       setComments(commentsData);
       setSubtasks(subtasksData);
       setFiles(filesData);
-    } catch (err: any) {
+    } catch {
       setError("Failed to load task details");
     } finally {
       setLoading(false);
@@ -752,8 +752,8 @@ export default function TaskDetailPage() {
       // Update local state
       setTask(updatedTask);
       setEditing(false);
-    } catch (err: any) {
-      setError(err.message || "Failed to update task");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update task");
     } finally {
       setSaving(false);
     }
@@ -793,7 +793,7 @@ export default function TaskDetailPage() {
     try {
       await TasksAPI.archive(task.id);
       router.push(`/projects/${projectId}`);
-    } catch (err: any) {
+    } catch {
       setError("Failed to archive task");
     }
   };
@@ -813,7 +813,7 @@ export default function TaskDetailPage() {
       };
       setComments([...comments, newCommentWithReplies]);
       setNewComment("");
-    } catch (err: any) {
+    } catch {
       setError("Failed to add comment");
     }
   };
@@ -862,7 +862,7 @@ export default function TaskDetailPage() {
         }
         return comment;
       }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error adding reply:", err);
       setError("Failed to add reply");
     }
@@ -896,7 +896,7 @@ export default function TaskDetailPage() {
           }));
       };
       setComments(removeComment(comments));
-    } catch (err: any) {
+    } catch {
       setError("Failed to delete comment");
     }
   };
@@ -931,7 +931,7 @@ export default function TaskDetailPage() {
         });
       };
       setComments(updateComment(comments));
-    } catch (err: any) {
+    } catch {
       setError("Failed to update comment");
     }
   };
@@ -960,7 +960,7 @@ export default function TaskDetailPage() {
         notes: subtaskData.notes.trim() || undefined,
       });
       setSubtasks([...subtasks, subtask]);
-    } catch (err: any) {
+    } catch {
       setError("Failed to add sub-task");
     } finally {
       setCreatingSubTask(false);
@@ -976,7 +976,7 @@ export default function TaskDetailPage() {
       const file = await FilesAPI.upload(task.id, selectedFile);
       setFiles([...files, file]);
       setSelectedFile(null);
-    } catch (err: any) {
+    } catch {
       setError("Failed to upload file");
     } finally {
       setUploadingFile(false);
@@ -1036,7 +1036,7 @@ export default function TaskDetailPage() {
       setSubtasks(
         subtasks.map((st) => (st.id === subtaskId ? updatedSubtask : st))
       );
-    } catch (err: any) {
+    } catch {
       setError("Failed to update sub-task");
     }
   };
@@ -1046,7 +1046,7 @@ export default function TaskDetailPage() {
     try {
       await SubTasksAPI.delete(subtaskId);
       setSubtasks(subtasks.filter((st) => st.id !== subtaskId));
-    } catch (err: any) {
+    } catch {
       setError("Failed to delete sub-task");
     }
   };
@@ -1266,7 +1266,7 @@ export default function TaskDetailPage() {
                     )}
                     <div className="flex items-center justify-between mt-2">
                       <p className="text-xs text-gray-500">
-                        Type @ to mention someone. They'll receive an email notification.
+                        Type @ to mention someone. They&apos;ll receive an email notification.
                       </p>
                       <button
                         onClick={addComment}

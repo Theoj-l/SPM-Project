@@ -362,7 +362,7 @@ export type Notification = {
   read: boolean;
   created_at: string;
   link_url?: string | null;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 };
 
 export const NotificationsAPI = {

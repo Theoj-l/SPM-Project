@@ -113,7 +113,7 @@ export default function ProjectDetailPage() {
       } else {
         setError("Project not found");
       }
-    } catch (err: any) {
+    } catch {
       setError("Failed to load project");
     }
   };
@@ -124,7 +124,7 @@ export default function ProjectDetailPage() {
       setLoadingTasks(true);
       const projectTasks = await TasksAPI.list(projectId);
       setTasks(projectTasks);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load tasks:", err);
       // If tasks endpoint doesn't exist yet, use empty array
       setTasks([]);
@@ -161,9 +161,9 @@ export default function ProjectDetailPage() {
       }
 
       setUsers(memberUsers);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Silently handle "User not found" errors - this can happen if the user exists in auth but not in users table
-      const errorMessage = err?.message || String(err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
       let errorDetail = "";
       try {
         // Try to parse JSON error response
@@ -210,8 +210,8 @@ export default function ProjectDetailPage() {
       await TasksAPI.create(projectId, taskData);
       setShowCreateTaskModal(false);
       await loadTasks();
-    } catch (err: any) {
-      setError(err.message || "Failed to create task");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create task");
     } finally {
       setCreatingTask(false);
     }
@@ -225,7 +225,7 @@ export default function ProjectDetailPage() {
     try {
       await TasksAPI.update(taskId, { status: newStatus });
       await loadTasks();
-    } catch (err: any) {
+    } catch {
       setError("Failed to update task");
     }
   };
@@ -235,7 +235,7 @@ export default function ProjectDetailPage() {
     try {
       await TasksAPI.archive(taskId);
       await loadTasks();
-    } catch (err: any) {
+    } catch {
       setError("Failed to archive task");
     }
   };
@@ -452,7 +452,7 @@ export default function ProjectDetailPage() {
     try {
       await TasksAPI.updateAssignees(taskId, assigneeIds);
       await loadTasks();
-    } catch (err: any) {
+    } catch {
       setError("Failed to update task assignees");
     }
   };

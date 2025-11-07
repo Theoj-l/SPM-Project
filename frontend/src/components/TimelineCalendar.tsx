@@ -354,7 +354,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
   }, [users, teamMembers, tasks, user]);
 
   // Handle event click
-  const handleEventClick = (clickInfo: any) => {
+  const handleEventClick = (clickInfo: { event: { extendedProps: { task?: unknown; isSubtask?: boolean; projectId?: string; taskId?: string } } }) => {
     const { task, isSubtask, projectId, taskId } = clickInfo.event.extendedProps;
     if (onTaskClick && task) {
       onTaskClick(task, isSubtask, projectId, taskId);

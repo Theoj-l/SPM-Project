@@ -54,7 +54,7 @@ export default function LoginPage() {
       } else {
         setSubmitting(false);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Login error:", err);
       setSubmitting(false);
     }
@@ -96,7 +96,7 @@ export default function LoginPage() {
       } else {
         toast.error("Failed to send recovery email");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Password recovery error:", err);
       toast.error("Failed to send recovery email");
     } finally {
@@ -207,7 +207,7 @@ export default function LoginPage() {
           {recoverySuccess ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                We've sent a password reset link to{" "}
+                We&apos;ve sent a password reset link to{" "}
                 <strong>{recoveryEmail}</strong>. Please check your inbox and
                 follow the instructions to reset your password.
               </p>

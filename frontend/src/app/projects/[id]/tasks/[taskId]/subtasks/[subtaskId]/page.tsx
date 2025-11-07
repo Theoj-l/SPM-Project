@@ -699,8 +699,8 @@ export default function SubTaskDetailPage() {
               Sub-task not found
             </h2>
             <p className="text-gray-600 mb-4">
-              The sub-task you're looking for doesn't exist or you don't have
-              access to it.
+              The sub-task you&apos;re looking for doesn&apos;t exist or you
+              don&apos;t have access to it.
             </p>
             <button
               onClick={() => router.back()}
