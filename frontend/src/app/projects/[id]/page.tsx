@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ChevronRight,
   Archive,
+  Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,6 +162,32 @@ export default function ProjectDetailPage() {
 
       setUsers(memberUsers);
     } catch (err: any) {
+      // Silently handle "User not found" errors - this can happen if the user exists in auth but not in users table
+      const errorMessage = err?.message || String(err);
+      let errorDetail = "";
+      try {
+        // Try to parse JSON error response
+        const parsed = JSON.parse(errorMessage);
+        errorDetail = parsed.detail || "";
+      } catch {
+        // Not JSON, use the message as-is
+        errorDetail = errorMessage;
+      }
+      
+      if (errorDetail.includes("User not found") || errorMessage.includes("User not found")) {
+        // Fallback: if project members fail to load, at least include the current user if they're the owner
+        if (user && project && user.id === project.owner_id) {
+          setUsers([
+            {
+              id: user.id,
+              email: user.email,
+              display_name: user.full_name || undefined,
+              roles: user.roles || [],
+            },
+          ]);
+        }
+        return;
+      }
       console.error("Failed to load project members:", err);
       // Fallback: if project members fail to load, at least include the current user if they're the owner
       if (user && project && user.id === project.owner_id) {
@@ -252,9 +279,22 @@ export default function ProjectDetailPage() {
     return foundUser?.display_name || foundUser?.email || "Unknown User";
   };
 
+  // Helper function to check if a task is overdue
+  const isTaskOverdue = (task: Task): boolean => {
+    if (!task.due_date || task.status === "completed") return false;
+    const dueDate = new Date(task.due_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
   // Filter tasks based on current filter criteria
   const getFilteredTasks = () => {
     let filtered = [...tasks];
+
+    // Exclude overdue tasks from main list (they're shown in the overdue section)
+    filtered = filtered.filter((task) => !isTaskOverdue(task));
 
     // Search by name/description
     if (searchQuery.trim()) {
@@ -343,6 +383,26 @@ export default function ProjectDetailPage() {
         filtered = filtered.filter(
           (task) => !task.priority || task.priority === undefined
         );
+      } else if (priorityFilter === "highest_to_lowest") {
+        // Sort by priority highest to lowest (10 to 1), tasks without priority go to end
+        filtered.sort((a, b) => {
+          const aPriority = a.priority ?? 0;
+          const bPriority = b.priority ?? 0;
+          if (aPriority === 0 && bPriority === 0) return 0;
+          if (aPriority === 0) return 1;
+          if (bPriority === 0) return -1;
+          return bPriority - aPriority;
+        });
+      } else if (priorityFilter === "lowest_to_highest") {
+        // Sort by priority lowest to highest (1 to 10), tasks without priority go to end
+        filtered.sort((a, b) => {
+          const aPriority = a.priority ?? 0;
+          const bPriority = b.priority ?? 0;
+          if (aPriority === 0 && bPriority === 0) return 0;
+          if (aPriority === 0) return 1;
+          if (bPriority === 0) return -1;
+          return aPriority - bPriority;
+        });
       } else {
         const priorityValue = parseInt(priorityFilter, 10);
         filtered = filtered.filter(
@@ -588,6 +648,189 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
+      {/* Overdue Tasks Section */}
+      {(() => {
+        const overdueTasks = tasks.filter((task) => isTaskOverdue(task));
+
+        if (overdueTasks.length === 0) return null;
+
+        return (
+          <div className="bg-red-50 border-2 border-red-200 rounded-lg mb-6 shadow-sm">
+            <div className="p-4 border-b border-red-200">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+                <h2 className="text-lg font-semibold text-red-900">
+                  Overdue Tasks ({overdueTasks.length})
+                </h2>
+              </div>
+              <p className="text-sm text-red-700 mt-1">
+                {overdueTasks.length === 1
+                  ? "1 task is past its deadline"
+                  : `${overdueTasks.length} tasks are past their deadlines`}
+              </p>
+            </div>
+            <div className="p-4 space-y-3">
+              {overdueTasks.map((task) => {
+                const getStatusConfig = (status: Task["status"]) => {
+                  switch (status) {
+                    case "completed":
+                      return {
+                        color: "bg-green-50 border-green-200",
+                        badgeColor:
+                          "bg-green-100 text-green-700 border-green-200",
+                        accentColor: "bg-green-500",
+                      };
+                    case "in_progress":
+                      return {
+                        color: "bg-blue-50 border-blue-200",
+                        badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
+                        accentColor: "bg-blue-500",
+                      };
+                    case "blocked":
+                      return {
+                        color: "bg-red-50 border-red-200",
+                        badgeColor: "bg-red-100 text-red-700 border-red-200",
+                        accentColor: "bg-red-500",
+                      };
+                    default:
+                      return {
+                        color: "bg-white border-gray-200",
+                        badgeColor:
+                          "bg-gray-100 text-gray-700 border-gray-200",
+                        accentColor: "bg-gray-400",
+                      };
+                  }
+                };
+                const statusConfig = getStatusConfig(task.status);
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`group relative border-2 rounded-lg transition-all duration-200 hover:shadow-lg cursor-pointer bg-white ${statusConfig.color}`}
+                    onClick={() =>
+                      router.push(`/projects/${projectId}/tasks/${task.id}`)
+                    }
+                  >
+                    {/* Status Accent Bar */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-lg ${statusConfig.accentColor}`}
+                    />
+
+                    <div className="p-4 pl-5">
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Main Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start gap-3 mb-2">
+                            <h3
+                              className={`text-base font-semibold flex-1 ${
+                                task.status === "completed"
+                                  ? "line-through text-gray-500"
+                                  : "text-gray-900 group-hover:text-blue-600 transition-colors"
+                              }`}
+                            >
+                              {task.title}
+                            </h3>
+                            <Badge
+                              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border ${statusConfig.badgeColor}`}
+                            >
+                              {getStatusIcon(task.status)}
+                              {task.status === "todo"
+                                ? "To Do"
+                                : task.status === "in_progress"
+                                ? "In Progress"
+                                : task.status === "completed"
+                                ? "Completed"
+                                : task.status === "blocked"
+                                ? "Blocked"
+                                : (task.status as string)
+                                    .charAt(0)
+                                    .toUpperCase() +
+                                  (task.status as string)
+                                    .slice(1)
+                                    .replace("_", " ")}
+                            </Badge>
+                          </div>
+
+                          {task.description && (
+                            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                              {task.description}
+                            </p>
+                          )}
+
+                          {/* Metadata Row */}
+                          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-red-200">
+                            {/* Due Date - Highlighted as Overdue */}
+                            {task.due_date && (
+                              <div className="flex items-center gap-1.5 text-xs text-red-700 font-semibold">
+                                <Calendar className="h-4 w-4 text-red-600" />
+                                <span>
+                                  Overdue:{" "}
+                                  {new Date(task.due_date).toLocaleDateString(
+                                    "en-US",
+                                    {
+                                      month: "short",
+                                      day: "numeric",
+                                      year:
+                                        new Date(task.due_date).getFullYear() !==
+                                        new Date().getFullYear()
+                                          ? "numeric"
+                                          : undefined,
+                                    }
+                                  )}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Assignees */}
+                            {task.assignee_names &&
+                              task.assignee_names.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex -space-x-2">
+                                    {task.assignee_names
+                                      .slice(0, 3)
+                                      .map((name, index) => (
+                                        <div
+                                          key={index}
+                                          className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-medium"
+                                          title={name}
+                                        >
+                                          {name.charAt(0).toUpperCase()}
+                                        </div>
+                                      ))}
+                                  </div>
+                                  {task.assignee_names.length > 3 && (
+                                    <span className="text-xs text-gray-500 font-medium">
+                                      +{task.assignee_names.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                            {/* Priority */}
+                            {task.priority && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <Flag className={`h-4 w-4 ${
+                                  task.priority >= 8 ? "text-red-500" :
+                                  task.priority >= 5 ? "text-orange-500" :
+                                  "text-yellow-500"
+                                }`} />
+                                <span className="font-medium text-gray-600">
+                                  Priority {task.priority}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Tasks Section */}
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
@@ -753,6 +996,8 @@ export default function ProjectDetailPage() {
                   <SelectContent>
                     <SelectItem value="all">All Priorities</SelectItem>
                     <SelectItem value="no_priority">No Priority</SelectItem>
+                    <SelectItem value="highest_to_lowest">Highest to Lowest</SelectItem>
+                    <SelectItem value="lowest_to_highest">Lowest to Highest</SelectItem>
                     {Array.from({ length: 10 }, (_, i) => i + 1).map((priority) => (
                       <SelectItem key={priority} value={priority.toString()}>
                         Priority {priority}
@@ -803,199 +1048,277 @@ export default function ProjectDetailPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {getFilteredTasks().map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-3 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() =>
-                    router.push(`/projects/${projectId}/tasks/${task.id}`)
+            <div className="space-y-4">
+              {getFilteredTasks().map((task) => {
+                const getStatusConfig = (status: Task["status"]) => {
+                  switch (status) {
+                    case "completed":
+                      return {
+                        color: "bg-green-50 border-green-200",
+                        badgeColor: "bg-green-100 text-green-700 border-green-200",
+                        accentColor: "bg-green-500",
+                      };
+                    case "in_progress":
+                      return {
+                        color: "bg-blue-50 border-blue-200",
+                        badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
+                        accentColor: "bg-blue-500",
+                      };
+                    case "blocked":
+                      return {
+                        color: "bg-red-50 border-red-200",
+                        badgeColor: "bg-red-100 text-red-700 border-red-200",
+                        accentColor: "bg-red-500",
+                      };
+                    default:
+                      return {
+                        color: "bg-white border-gray-200",
+                        badgeColor: "bg-gray-100 text-gray-700 border-gray-200",
+                        accentColor: "bg-gray-400",
+                      };
                   }
-                >
-                  <div className="flex-1 min-w-0">
-                    <h3
-                      className={`font-medium text-sm ${
-                        task.status === "completed"
-                          ? "line-through text-gray-500"
-                          : "text-gray-900"
-                      }`}
-                    >
-                      {task.title}
-                    </h3>
-                    {task.description && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        {task.description}
-                      </p>
-                    )}
-                    {task.tags && task.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {task.tags.slice(0, 3).map((tag, index) => (
-                          <Badge
-                            key={index}
-                            variant="secondary"
-                            className="text-xs"
-                          >
-                            <Tag className="h-3 w-3 mr-1" />
-                            {tag.charAt(0).toUpperCase() + tag.slice(1)}
-                          </Badge>
-                        ))}
-                        {task.tags.length > 3 && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs text-gray-500"
-                          >
-                            +{task.tags.length - 3} more
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                };
+                const statusConfig = getStatusConfig(task.status);
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge
-                      variant={
-                        task.status === "completed"
-                          ? "default"
-                          : task.status === "in_progress"
-                          ? "secondary"
-                          : task.status === "blocked"
-                          ? "destructive"
-                          : "outline"
-                      }
-                      className="flex items-center gap-1"
-                    >
-                      {getStatusIcon(task.status)}
-                      {task.status === "todo"
-                        ? "To Do"
-                        : task.status === "in_progress"
-                        ? "In Progress"
-                        : task.status === "completed"
-                        ? "Completed"
-                        : task.status === "blocked"
-                        ? "Blocked"
-                        : (task.status as string).charAt(0).toUpperCase() +
-                          (task.status as string).slice(1).replace("_", " ")}
-                    </Badge>
+                return (
+                  <div
+                    key={task.id}
+                    className={`group relative border-2 rounded-lg transition-all duration-200 hover:shadow-lg cursor-pointer ${statusConfig.color}`}
+                    onClick={() =>
+                      router.push(`/projects/${projectId}/tasks/${task.id}`)
+                    }
+                  >
+                    {/* Status Accent Bar */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-lg ${statusConfig.accentColor}`}
+                    />
 
-                    {/* Assignees Display */}
-                    <div className="flex items-center gap-1">
-                      {editingAssignees === task.id ? (
-                        <div className="min-w-[200px]">
-                          <AssigneeSelector
-                            users={users}
-                            selectedUserIds={tempAssigneeIds}
-                            onSelectionChange={setTempAssigneeIds}
-                            maxAssignees={5}
-                            placeholder="Select project members"
-                          />
-                          <div className="flex gap-2 mt-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateTaskAssignees(task.id, tempAssigneeIds);
-                                setEditingAssignees(null);
-                              }}
-                              className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                    <div className="p-5 pl-6">
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Main Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start gap-3 mb-2">
+                            <h3
+                              className={`text-base font-semibold flex-1 ${
+                                task.status === "completed"
+                                  ? "line-through text-gray-500"
+                                  : "text-gray-900 group-hover:text-blue-600 transition-colors"
+                              }`}
                             >
-                              Save
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingAssignees(null);
-                                setTempAssigneeIds([]);
-                              }}
-                              className="px-2 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400"
+                              {task.title}
+                            </h3>
+                            <Badge
+                              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border ${statusConfig.badgeColor}`}
                             >
-                              Cancel
-                            </button>
+                              {getStatusIcon(task.status)}
+                              {task.status === "todo"
+                                ? "To Do"
+                                : task.status === "in_progress"
+                                ? "In Progress"
+                                : task.status === "completed"
+                                ? "Completed"
+                                : task.status === "blocked"
+                                ? "Blocked"
+                                : (task.status as string)
+                                    .charAt(0)
+                                    .toUpperCase() +
+                                  (task.status as string)
+                                    .slice(1)
+                                    .replace("_", " ")}
+                            </Badge>
                           </div>
-                          {users.length === 0 && (
-                            <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded mt-1">
-                              No project members available for assignment
+
+                          {task.description && (
+                            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                              {task.description}
+                            </p>
+                          )}
+
+                          {/* Tags */}
+                          {task.tags && task.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-3">
+                              {task.tags.slice(0, 3).map((tag, index) => (
+                                <Badge
+                                  key={index}
+                                  variant="secondary"
+                                  className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                >
+                                  <Tag className="h-3 w-3 mr-1" />
+                                  {tag.charAt(0).toUpperCase() + tag.slice(1)}
+                                </Badge>
+                              ))}
+                              {task.tags.length > 3 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs px-2 py-0.5 text-gray-500 border-gray-300"
+                                >
+                                  +{task.tags.length - 3} more
+                                </Badge>
+                              )}
                             </div>
                           )}
-                          {users.length > 0 && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              {users.length} member
-                              {users.length !== 1 ? "s" : ""} available for
-                              assignment
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          {task.assignee_names &&
-                          task.assignee_names.length > 0 ? (
-                            <div className="flex items-center gap-1">
-                              <UserIcon className="h-3 w-3 text-gray-500" />
-                              <div className="flex items-center gap-1">
-                                {task.assignee_names
-                                  .slice(0, 3)
-                                  .map((name, index) => (
-                                    <span
-                                      key={index}
-                                      className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded"
+
+                          {/* Metadata Row */}
+                          <div className="flex items-center gap-4 mt-4 pt-3 border-t border-gray-200">
+                            {/* Assignees Display */}
+                            <div className="flex items-center gap-2">
+                              {editingAssignees === task.id ? (
+                                <div
+                                  className="min-w-[200px]"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <AssigneeSelector
+                                    users={users}
+                                    selectedUserIds={tempAssigneeIds}
+                                    onSelectionChange={setTempAssigneeIds}
+                                    maxAssignees={5}
+                                    placeholder="Select project members"
+                                  />
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateTaskAssignees(
+                                          task.id,
+                                          tempAssigneeIds
+                                        );
+                                        setEditingAssignees(null);
+                                      }}
+                                      className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
                                     >
-                                      {name}
-                                    </span>
-                                  ))}
-                                {task.assignee_names.length > 3 && (
-                                  <span className="text-xs text-gray-500">
-                                    +{task.assignee_names.length - 3} more
-                                  </span>
-                                )}
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingAssignees(null);
+                                        setTempAssigneeIds([]);
+                                      }}
+                                      className="px-3 py-1.5 bg-gray-300 text-gray-700 text-xs rounded-md hover:bg-gray-400 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                  {users.length === 0 && (
+                                    <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded-md mt-2">
+                                      No project members available for assignment
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  {task.assignee_names &&
+                                  task.assignee_names.length > 0 ? (
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex -space-x-2">
+                                        {task.assignee_names
+                                          .slice(0, 3)
+                                          .map((name, index) => (
+                                            <div
+                                              key={index}
+                                              className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-medium"
+                                              title={name}
+                                            >
+                                              {name.charAt(0).toUpperCase()}
+                                            </div>
+                                          ))}
+                                      </div>
+                                      {task.assignee_names.length > 3 && (
+                                        <span className="text-xs text-gray-500 font-medium">
+                                          +{task.assignee_names.length - 3}
+                                        </span>
+                                      )}
+                                      <span className="text-xs text-gray-500">
+                                        {task.assignee_names.length}{" "}
+                                        {task.assignee_names.length === 1
+                                          ? "assignee"
+                                          : "assignees"}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                                      <UserIcon className="h-4 w-4" />
+                                      <span>Unassigned</span>
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingAssignees(task.id);
+                                      setTempAssigneeIds(
+                                        task.assignee_ids || []
+                                      );
+                                    }}
+                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Edit assignees"
+                                  >
+                                    <Edit className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Due Date */}
+                            {task.due_date && (
+                              <div className="flex items-center gap-1.5 text-xs text-gray-600">
+                                <Calendar className="h-4 w-4 text-gray-400" />
+                                <span className="font-medium">
+                                  {new Date(task.due_date).toLocaleDateString(
+                                    "en-US",
+                                    {
+                                      month: "short",
+                                      day: "numeric",
+                                      year:
+                                        new Date(task.due_date).getFullYear() !==
+                                        new Date().getFullYear()
+                                          ? "numeric"
+                                          : undefined,
+                                    }
+                                  )}
+                                </span>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-xs text-gray-400">
-                              <UserIcon className="h-3 w-3" />
-                              <span>Unassigned</span>
-                            </div>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingAssignees(task.id);
-                              setTempAssigneeIds(task.assignee_ids || []);
-                            }}
-                            className="p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Edit assignees"
-                          >
-                            <Edit className="h-3 w-3" />
-                          </button>
+                            )}
+
+                            {/* Priority */}
+                            {task.priority && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <Flag className={`h-4 w-4 ${
+                                  task.priority >= 8 ? "text-red-500" :
+                                  task.priority >= 5 ? "text-orange-500" :
+                                  "text-yellow-500"
+                                }`} />
+                                <span className="font-medium text-gray-600">
+                                  Priority {task.priority}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Archive Button */}
+                            {!(isAdmin(user) && !canAdminManage(user)) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDialog({
+                                    isOpen: true,
+                                    title: "Archive Task",
+                                    description: `Are you sure you want to archive "${task.title}"?`,
+                                    variant: "default",
+                                    onConfirm: () => archiveTask(task.id),
+                                  });
+                                }}
+                                className="ml-auto p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                title="Archive task"
+                              >
+                                <Archive className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-
-                    {task.due_date && (
-                      <div className="flex items-center gap-1 text-xs text-gray-500">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(task.due_date).toLocaleDateString()}
                       </div>
-                    )}
-
-                    {!(isAdmin(user) && !canAdminManage(user)) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDialog({
-                            isOpen: true,
-                            title: "Archive Task",
-                            description: `Are you sure you want to archive "${task.title}"?`,
-                            variant: "default",
-                            onConfirm: () => archiveTask(task.id),
-                          });
-                        }}
-                        className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
-                        title="Archive task"
-                      >
-                        <Archive className="h-4 w-4" />
-                      </button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

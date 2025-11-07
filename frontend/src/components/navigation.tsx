@@ -17,6 +17,7 @@ import {
   Bell,
   Archive,
   Shield,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,11 @@ export default function Navigation({ children }: NavigationProps) {
           href: "/calendar",
           label: "Calendar",
           icon: <ClipboardClock className="h-4 w-4" />,
+        },
+        {
+          href: "/teams",
+          label: "Teams",
+          icon: <Users className="h-4 w-4" />,
         },
         // Only show Reports for admin users
         ...(isAdmin

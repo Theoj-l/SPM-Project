@@ -76,6 +76,7 @@ class TaskUpdate(BaseModel):
     assignee_ids: Optional[List[str]] = Field(None, max_items=5, description="Updating assignees. All assignees can add, only managers can remove.")
     tags: Optional[str] = Field(None, description="Tags as free text separated by # (e.g., 'urgent#bug#frontend')")
     priority: Optional[int] = Field(None, ge=1, le=10, description="Priority level from 1 (lowest) to 10 (highest)")
+    due_date: Optional[str] = Field(None, description="Due date and time in YYYY-MM-DD HH:MM:SS format")
     
     @validator('tags')
     def parse_tags(cls, v):

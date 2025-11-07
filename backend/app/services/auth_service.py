@@ -3,6 +3,11 @@
 from typing import Optional, Dict, Any
 from app.supabase_client import get_supabase_client
 from app.config import settings
+import time
+
+# Simple in-memory cache for user data (token -> user_data, expires after 5 minutes)
+_user_cache: Dict[str, tuple] = {}  # {token: (user_data, expiry_timestamp)}
+_cache_ttl = 300  # 5 minutes in seconds
 
 
 class AuthService:
@@ -185,6 +190,7 @@ class AuthService:
     def get_user(access_token: str) -> Optional[Dict[str, Any]]:
         """
         Get user information from access token.
+        Uses caching to reduce API calls and prevent timeouts.
         
         Args:
             access_token: The access token
@@ -192,29 +198,78 @@ class AuthService:
         Returns:
             User information dictionary or None if invalid token
         """
-        try:
-            supabase = get_supabase_client()
-            
-            # Get user with the access token
-            response = supabase.auth.get_user(access_token)
-            
-            if response and response.user:
-                return {
-                    "id": response.user.id,
-                    "email": response.user.email,
-                    "created_at": response.user.created_at,
-                    "updated_at": response.user.updated_at,
-                    "email_confirmed_at": response.user.email_confirmed_at,
-                    "last_sign_in_at": response.user.last_sign_in_at,
-                    "app_metadata": response.user.app_metadata,
-                    "user_metadata": response.user.user_metadata,
-                }
-            
-            return None
-            
-        except Exception as e:
-            print(f"Get user error: {str(e)}")
-            return None
+        global _user_cache
+        
+        # Check cache first
+        current_time = time.time()
+        if access_token in _user_cache:
+            user_data, expiry = _user_cache[access_token]
+            if current_time < expiry:
+                return user_data
+            else:
+                # Cache expired, remove it
+                del _user_cache[access_token]
+        
+        max_retries = 2
+        retry_delay = 0.5  # seconds
+        
+        for attempt in range(max_retries + 1):
+            try:
+                supabase = get_supabase_client()
+                
+                # Get user with the access token
+                response = supabase.auth.get_user(access_token)
+                
+                if response and response.user:
+                    user_data = {
+                        "id": response.user.id,
+                        "email": response.user.email,
+                        "created_at": response.user.created_at,
+                        "updated_at": response.user.updated_at,
+                        "email_confirmed_at": response.user.email_confirmed_at,
+                        "last_sign_in_at": response.user.last_sign_in_at,
+                        "app_metadata": response.user.app_metadata,
+                        "user_metadata": response.user.user_metadata,
+                    }
+                    
+                    # Cache the result
+                    _user_cache[access_token] = (user_data, current_time + _cache_ttl)
+                    
+                    # Clean up expired cache entries (keep cache size manageable)
+                    if len(_user_cache) > 100:
+                        _user_cache = {
+                            k: v for k, v in _user_cache.items() 
+                            if v[1] > current_time
+                        }
+                    
+                    return user_data
+                
+                return None
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                # Check if it's a timeout error
+                is_timeout = (
+                    "timeout" in error_str or 
+                    "timed out" in error_str or
+                    "read operation timed out" in error_str
+                )
+                
+                if is_timeout and attempt < max_retries:
+                    print(f"Get user timeout (attempt {attempt + 1}/{max_retries + 1}), retrying...")
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    print(f"Get user error: {str(e)}")
+                    # On final failure, check if we have a cached value (even if expired)
+                    # This provides some resilience during Supabase outages
+                    if access_token in _user_cache:
+                        cached_data, _ = _user_cache[access_token]
+                        print("Returning cached user data due to timeout")
+                        return cached_data
+                    return None
+        
+        return None
     
     @staticmethod
     def reset_password_for_email(email: str, redirect_url: Optional[str] = None) -> bool:

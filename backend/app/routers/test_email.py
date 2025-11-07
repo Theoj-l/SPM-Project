@@ -195,7 +195,7 @@ async def send_test_email(
                     relevant_project_ids.add(project_id)
                 else:
                     # User is employee in this project or not a member - only see assigned tasks
-                    assigned = task.get("assigned", [])
+                    assigned = task.get("assigned") or []
                     if user_id in assigned:
                         relevant_tasks.append(task)
                         if project_id:
@@ -233,7 +233,7 @@ async def send_test_email(
                             "due_date": due_date_str,
                             "project_id": task.get("project_id"),
                             "status": task.get("status"),
-                            "assigned": task.get("assigned", [])
+                            "assigned": task.get("assigned") or []
                         })
                     # Check if due soon (within next 48 hours)
                     elif today_start <= due_date <= tomorrow:
@@ -243,7 +243,7 @@ async def send_test_email(
                             "due_date": due_date_str,
                             "project_id": task.get("project_id"),
                             "status": task.get("status"),
-                            "assigned": task.get("assigned", [])
+                            "assigned": task.get("assigned") or []
                         })
                 except (ValueError, TypeError) as e:
                     continue
@@ -269,7 +269,7 @@ async def send_test_email(
             
             for task in relevant_tasks:
                 project_id = task.get("project_id") or "unassigned"
-                assigned = task.get("assigned", [])
+                assigned = task.get("assigned") or []
                 
                 if project_id not in person_tasks_by_project:
                     person_tasks_by_project[project_id] = {}

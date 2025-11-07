@@ -247,59 +247,6 @@ export default function NotificationsPage() {
             </div>
           )}
         </div>
-
-        <div className="rounded-lg border bg-card p-6">
-          <h2 className="text-xl font-semibold mb-4">Notification Settings</h2>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Email notifications</p>
-                <p className="text-sm text-muted-foreground">
-                  Receive notifications via email
-                </p>
-              </div>
-              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
-                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Push notifications</p>
-                <p className="text-sm text-muted-foreground">
-                  Receive push notifications in browser
-                </p>
-              </div>
-              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
-                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Task assignments</p>
-                <p className="text-sm text-muted-foreground">
-                  Notify when assigned to new tasks
-                </p>
-              </div>
-              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
-                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Deadline reminders</p>
-                <p className="text-sm text-muted-foreground">
-                  Remind about upcoming deadlines
-                </p>
-              </div>
-              <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors">
-                <span className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

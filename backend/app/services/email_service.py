@@ -56,9 +56,12 @@ class EmailService:
             print(f"Error sending email to {to_email}: {e}")
             return False
     
-    def send_task_assigned_email(self, user_email: str, user_name: str, task_title: str, task_id: str, project_name: str) -> bool:
+    def send_task_assigned_email(self, user_email: str, user_name: str, task_title: str, task_id: str, project_name: str, project_id: str = None) -> bool:
         """Send email when a task is assigned to a user."""
-        task_url = f"{self.frontend_url}/projects/{task_id.split('-')[0]}/tasks/{task_id}" if '-' in task_id else f"{self.frontend_url}/tasks/{task_id}"
+        if project_id:
+            task_url = f"{self.frontend_url}/projects/{project_id}/tasks/{task_id}"
+        else:
+            task_url = f"{self.frontend_url}/tasks/{task_id}"
         
         subject = f"New Task Assigned: {task_title}"
         html_content = f"""
@@ -213,9 +216,14 @@ class EmailService:
         
         return self.send_email(user_email, subject, html_content, text_content)
     
-    def send_mention_email(self, user_email: str, user_name: str, commenter_name: str, task_title: str, task_id: str, comment_preview: str) -> bool:
+    def send_mention_email(self, user_email: str, user_name: str, commenter_name: str, task_title: str, task_id: str, comment_preview: str, project_id: str = None) -> bool:
         """Send email when user is mentioned in a comment."""
-        task_url = f"{self.frontend_url}/projects/{task_id.split('-')[0]}/tasks/{task_id}" if '-' in task_id else f"{self.frontend_url}/tasks/{task_id}"
+        # Build proper task URL - need project_id for proper routing
+        if project_id:
+            task_url = f"{self.frontend_url}/projects/{project_id}/tasks/{task_id}"
+        else:
+            # Fallback: try to extract from task_id if it contains project info
+            task_url = f"{self.frontend_url}/tasks/{task_id}"
         
         subject = f"You were mentioned in a comment on: {task_title}"
         html_content = f"""
@@ -264,6 +272,330 @@ class EmailService:
         Comment: {comment_preview}
         
         View the comment: {task_url}
+        """
+        
+        return self.send_email(user_email, subject, html_content, text_content)
+    
+    def send_task_update_email(
+        self, 
+        user_email: str, 
+        user_name: str, 
+        task_title: str, 
+        task_id: str, 
+        project_name: str,
+        project_id: str,
+        updated_by_name: str,
+        update_type: str,
+        update_details: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send email when a task is updated (status change, title, description, etc.)."""
+        task_url = f"{self.frontend_url}/projects/{project_id}/tasks/{task_id}"
+        
+        # Determine subject and message based on update type
+        update_messages = {
+            "status": {
+                "subject": f"Task Status Updated: {task_title}",
+                "title": "Task Status Updated",
+                "message": f"The status of task '{task_title}' has been changed",
+                "details": update_details and f"Status changed from {update_details.get('old_status', 'N/A')} to {update_details.get('new_status', 'N/A')}"
+            },
+            "title": {
+                "subject": f"Task Title Updated: {task_title}",
+                "title": "Task Title Updated",
+                "message": f"The title of task '{task_title}' has been updated",
+                "details": update_details and f"New title: {update_details.get('new_title', task_title)}"
+            },
+            "description": {
+                "subject": f"Task Description Updated: {task_title}",
+                "title": "Task Description Updated",
+                "message": f"The description of task '{task_title}' has been updated",
+                "details": None
+            },
+            "priority": {
+                "subject": f"Task Priority Updated: {task_title}",
+                "title": "Task Priority Updated",
+                "message": f"The priority of task '{task_title}' has been updated",
+                "details": update_details and f"New priority: {update_details.get('new_priority', 'N/A')}"
+            },
+            "notes": {
+                "subject": f"Task Notes Updated: {task_title}",
+                "title": "Task Notes Updated",
+                "message": f"The notes for task '{task_title}' have been updated",
+                "details": None
+            },
+            "tags": {
+                "subject": f"Task Tags Updated: {task_title}",
+                "title": "Task Tags Updated",
+                "message": f"The tags for task '{task_title}' have been updated",
+                "details": update_details and f"Tags: {', '.join(update_details.get('tags', []))}"
+            },
+            "assignees": {
+                "subject": f"Task Assignees Updated: {task_title}",
+                "title": "Task Assignees Updated",
+                "message": f"The assignees for task '{task_title}' have been updated",
+                "details": None
+            },
+            "general": {
+                "subject": f"Task Updated: {task_title}",
+                "title": "Task Updated",
+                "message": f"Task '{task_title}' has been updated",
+                "details": None
+            }
+        }
+        
+        update_info = update_messages.get(update_type, update_messages["general"])
+        
+        subject = update_info["subject"]
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #6366F1; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
+                .update-box {{ background-color: white; padding: 15px; border-left: 4px solid #6366F1; margin: 20px 0; }}
+                .button {{ display: inline-block; padding: 12px 24px; background-color: #6366F1; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }}
+                .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{update_info["title"]}</h1>
+                </div>
+                <div class="content">
+                    <p>Hi {user_name},</p>
+                    <p><strong>{updated_by_name}</strong> {update_info["message"].replace(f"'{task_title}'", "this task")}.</p>
+                    <div class="update-box">
+                        <h2 style="margin-top: 0;">{task_title}</h2>
+                        <p><strong>Project:</strong> {project_name}</p>
+                        {update_info["details"] and f'<p><strong>Details:</strong> {update_info["details"]}</p>'}
+                    </div>
+                    <a href="{task_url}" class="button">View Task</a>
+                </div>
+                <div class="footer">
+                    <p>This is an automated notification from SPM.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        text_content = f"""
+        {update_info["title"]}
+        
+        Hi {user_name},
+        
+        {updated_by_name} {update_info["message"]}.
+        
+        Task: {task_title}
+        Project: {project_name}
+        {update_info["details"] and f'Details: {update_info["details"]}'}
+        
+        View the task: {task_url}
+        """
+        
+        return self.send_email(user_email, subject, html_content, text_content)
+    
+    def send_task_updates_email(
+        self,
+        user_email: str,
+        user_name: str,
+        task_title: str,
+        task_id: str,
+        project_name: str,
+        project_id: str,
+        updated_by_name: str,
+        changes: List[Dict[str, Any]],
+        is_new_assignment: bool = False
+    ) -> bool:
+        """Send email when a task is updated with multiple changes consolidated into one email."""
+        task_url = f"{self.frontend_url}/projects/{project_id}/tasks/{task_id}"
+        
+        # Field labels for display
+        field_labels = {
+            "status": "Status",
+            "title": "Title",
+            "description": "Description",
+            "priority": "Priority",
+            "notes": "Notes",
+            "tags": "Tags",
+            "due_date": "Due Date",
+            "assignees": "Assignees"
+        }
+        
+        # Build change details
+        change_items = []
+        for change in changes:
+            update_type = change.get("type")
+            update_details = change.get("details", {})
+            
+            if update_type == "status":
+                old_status = update_details.get("old_status", "N/A")
+                new_status = update_details.get("new_status", "N/A")
+                change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Changed from {old_status} to {new_status}</li>")
+            elif update_type == "title":
+                old_title = update_details.get("old_title", "N/A")
+                new_title = update_details.get("new_title", task_title)
+                change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Changed from '{old_title}' to '{new_title}'</li>")
+            elif update_type == "priority":
+                old_priority = update_details.get("old_priority")
+                new_priority = update_details.get("new_priority", "N/A")
+                if old_priority is not None:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Changed from {old_priority} to {new_priority}</li>")
+                else:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Set to {new_priority}</li>")
+            elif update_type == "tags":
+                old_tags = update_details.get("old_tags", [])
+                new_tags = update_details.get("new_tags", [])
+                old_tags_str = ", ".join(old_tags) if old_tags else "None"
+                new_tags_str = ", ".join(new_tags) if new_tags else "None"
+                change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Changed from [{old_tags_str}] to [{new_tags_str}]</li>")
+            elif update_type == "due_date":
+                old_due_date = update_details.get("old_due_date", "")
+                new_due_date = update_details.get("new_due_date", "N/A")
+                if old_due_date:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Changed from {old_due_date} to {new_due_date}</li>")
+                else:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Set to {new_due_date}</li>")
+            elif update_type == "assignees":
+                added = update_details.get("added", [])
+                removed = update_details.get("removed", [])
+                if added and removed:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Added {len(added)}, Removed {len(removed)}</li>")
+                elif added:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Added {len(added)} assignee(s)</li>")
+                elif removed:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Removed {len(removed)} assignee(s)</li>")
+                else:
+                    change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Updated</li>")
+            else:
+                change_items.append(f"<li><strong>{field_labels.get(update_type, update_type.title())}:</strong> Updated</li>")
+        
+        changes_html = "<ul style='margin: 10px 0; padding-left: 20px;'>" + "".join(change_items) + "</ul>" if change_items else "<p>No details available.</p>"
+        
+        # Determine subject and title
+        if is_new_assignment:
+            subject = f"Task Assigned: {task_title}"
+            title = "Task Assigned"
+            intro_message = f"You have been assigned to task '{task_title}'"
+        elif len(changes) == 1:
+            change_type = changes[0].get("type", "general")
+            subject = f"Task {field_labels.get(change_type, change_type.title())} Updated: {task_title}"
+            title = f"Task {field_labels.get(change_type, change_type.title())} Updated"
+            intro_message = f"Task '{task_title}' has been updated"
+        else:
+            subject = f"Task Updated: {task_title}"
+            title = "Task Updated"
+            intro_message = f"Task '{task_title}' has been updated with {len(changes)} change(s)"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #6366F1; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+                .content {{ background-color: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }}
+                .update-box {{ background-color: white; padding: 15px; border-left: 4px solid #6366F1; margin: 20px 0; }}
+                .button {{ display: inline-block; padding: 12px 24px; background-color: #6366F1; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }}
+                .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
+                .changes-list {{ margin: 15px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{title}</h1>
+                </div>
+                <div class="content">
+                    <p>Hi {user_name},</p>
+                    <p><strong>{updated_by_name}</strong> {intro_message}.</p>
+                    <div class="update-box">
+                        <h2 style="margin-top: 0;">{task_title}</h2>
+                        <p><strong>Project:</strong> {project_name}</p>
+                        <div class="changes-list">
+                            <p><strong>Changes:</strong></p>
+                            {changes_html}
+                        </div>
+                    </div>
+                    <a href="{task_url}" class="button">View Task</a>
+                </div>
+                <div class="footer">
+                    <p>This is an automated notification from SPM.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Build text version
+        change_items_text = []
+        for change in changes:
+            update_type = change.get("type")
+            update_details = change.get("details", {})
+            
+            if update_type == "status":
+                old_status = update_details.get("old_status", "N/A")
+                new_status = update_details.get("new_status", "N/A")
+                change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Changed from {old_status} to {new_status}")
+            elif update_type == "title":
+                old_title = update_details.get("old_title", "N/A")
+                new_title = update_details.get("new_title", task_title)
+                change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Changed from '{old_title}' to '{new_title}'")
+            elif update_type == "priority":
+                old_priority = update_details.get("old_priority")
+                new_priority = update_details.get("new_priority", "N/A")
+                if old_priority is not None:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Changed from {old_priority} to {new_priority}")
+                else:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Set to {new_priority}")
+            elif update_type == "tags":
+                old_tags = update_details.get("old_tags", [])
+                new_tags = update_details.get("new_tags", [])
+                old_tags_str = ", ".join(old_tags) if old_tags else "None"
+                new_tags_str = ", ".join(new_tags) if new_tags else "None"
+                change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Changed from [{old_tags_str}] to [{new_tags_str}]")
+            elif update_type == "due_date":
+                old_due_date = update_details.get("old_due_date", "")
+                new_due_date = update_details.get("new_due_date", "N/A")
+                if old_due_date:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Changed from {old_due_date} to {new_due_date}")
+                else:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Set to {new_due_date}")
+            elif update_type == "assignees":
+                added = update_details.get("added", [])
+                removed = update_details.get("removed", [])
+                if added and removed:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Added {len(added)}, Removed {len(removed)}")
+                elif added:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Added {len(added)} assignee(s)")
+                elif removed:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Removed {len(removed)} assignee(s)")
+                else:
+                    change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Updated")
+            else:
+                change_items_text.append(f"- {field_labels.get(update_type, update_type.title())}: Updated")
+        
+        changes_text = "\n".join(change_items_text) if change_items_text else "No details available."
+        
+        text_content = f"""
+        {title}
+        
+        Hi {user_name},
+        
+        {updated_by_name} {intro_message}.
+        
+        Task: {task_title}
+        Project: {project_name}
+        
+        Changes:
+        {changes_text}
+        
+        View the task: {task_url}
         """
         
         return self.send_email(user_email, subject, html_content, text_content)

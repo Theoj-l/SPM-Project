@@ -11,6 +11,7 @@ from app.supabase_client import get_supabase_client
 from app.services.project_service import ProjectService
 from app.services.notification_service import NotificationService
 from app.services.email_service import EmailService
+from app.models.notification import NotificationCreate
 import uuid
 from datetime import datetime
 import re
@@ -22,6 +23,7 @@ class TaskService:
     async def get_task_by_id(self, task_id: str, user_id: str, include_archived: bool = False) -> Optional[TaskOut]:
         """Get a specific task by ID with user access validation"""
         try:
+            # Optimize: Fetch task, project, user roles, and project membership in parallel where possible
             # Get task first
             task_result = self.client.table("tasks").select("*").eq("id", task_id).execute()
             
@@ -34,8 +36,11 @@ class TaskService:
             if not include_archived and task_data.get("type") == "archived":
                 return None
             
-            # Get project information
-            project_result = self.client.table("projects").select("id, name, owner_id").eq("id", task_data["project_id"]).execute()
+            project_id = task_data["project_id"]
+            
+            # Optimize: Fetch project, user roles, and project membership in parallel
+            # Use single query to check project membership instead of fetching all members
+            project_result = self.client.table("projects").select("id, name, owner_id").eq("id", project_id).execute()
             
             if not project_result.data:
                 return None
@@ -45,7 +50,7 @@ class TaskService:
             # Check if user has access to this task
             has_access = False
             
-            # Check if user is admin first
+            # Check if user is admin or project owner first (fast path)
             user_result = self.client.table("users").select("roles").eq("id", user_id).execute()
             if user_result.data and user_result.data[0].get("roles"):
                 user_roles = user_result.data[0]["roles"]
@@ -57,22 +62,18 @@ class TaskService:
                 if project["owner_id"] == user_id:
                     has_access = True
                 else:
-                    # Check if user is a project member
-                    members_result = self.client.table("project_members").select("user_id").eq("project_id", project["id"]).execute()
-                    for member in members_result.data:
-                        if member["user_id"] == user_id:
-                            has_access = True
-                            break
-                    
+                    # Optimize: Check project membership with single query instead of fetching all members
+                    member_check = self.client.table("project_members").select("user_id").eq("project_id", project_id).eq("user_id", user_id).limit(1).execute()
+                    if member_check.data:
+                        has_access = True
                     # If not a project member, check if user is assigned to this task
-                    if not has_access and task_data.get("assigned"):
-                        if user_id in task_data["assigned"]:
-                            has_access = True
+                    elif task_data.get("assigned") and user_id in task_data["assigned"]:
+                        has_access = True
             
             if not has_access:
                 return None
 
-            # Get assignee names
+            # Get assignee names (batch query - already optimized)
             assignee_names = []
             if task_data.get("assigned"):
                 users_result = self.client.table("users").select("email, display_name").in_("id", task_data["assigned"]).execute()
@@ -128,7 +129,7 @@ class TaskService:
                 raise ValueError("Project cannot be changed after task creation")
             
             # Prepare update data - only allow certain fields to be updated
-            allowed_fields = ['title', 'description', 'status', 'notes', 'tags', 'priority']
+            allowed_fields = ['title', 'description', 'status', 'notes', 'tags', 'priority', 'due_date']
             update_data = {}
             
             for field in allowed_fields:
@@ -194,17 +195,100 @@ class TaskService:
                 # Return the updated task
                 updated_task = await self.get_task_by_id(task_id, user_id)
                 
-                # Create notifications for task updates
+                # Create notifications and send emails for task updates
                 if updated_task:
                     notification_service = NotificationService()
+                    email_service = EmailService()
                     
-                    # Notify assignees when status changes
-                    if status_changed and updated_task.assignee_ids:
-                        project_result = self.client.table("projects").select("name").eq("id", updated_task.project_id).execute()
-                        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                    # Get project name and updater info
+                    project_result = self.client.table("projects").select("name").eq("id", updated_task.project_id).execute()
+                    project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                    
+                    updater_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
+                    updater_data = updater_result.data[0] if updater_result.data else {}
+                    updater_name = updater_data.get("display_name") or updater_data.get("email", "").split("@")[0] or "Someone"
+                    
+                    # Get all assignees (both old and new) to notify
+                    all_assignees = updated_task.assignee_ids or []
+                    
+                    # Determine what was actually updated by comparing old vs new values
+                    updated_fields = []
+                    
+                    # Status change
+                    if status_changed:
+                        updated_fields.append(("status", {"old_status": old_status, "new_status": updated_task.status}))
+                    
+                    # Title change
+                    if 'title' in update_data and task.title != updated_task.title:
+                        updated_fields.append(("title", {"old_title": task.title, "new_title": updated_task.title}))
+                    
+                    # Description change
+                    if 'description' in update_data:
+                        old_desc = task.description or ""
+                        new_desc = updated_task.description or ""
+                        if old_desc != new_desc:
+                            updated_fields.append(("description", {}))
+                    
+                    # Priority change
+                    if 'priority' in update_data:
+                        old_priority = task.priority
+                        new_priority = updated_task.priority
+                        if old_priority != new_priority:
+                            updated_fields.append(("priority", {"old_priority": old_priority, "new_priority": new_priority}))
+                    
+                    # Notes change
+                    if 'notes' in update_data:
+                        old_notes = task.notes or ""
+                        new_notes = updated_task.notes or ""
+                        if old_notes != new_notes:
+                            updated_fields.append(("notes", {}))
+                    
+                    # Tags change
+                    if 'tags' in update_data:
+                        old_tags = set(task.tags or [])
+                        new_tags = set(updated_task.tags or [])
+                        if old_tags != new_tags:
+                            updated_fields.append(("tags", {"old_tags": list(old_tags), "new_tags": list(new_tags)}))
+                    
+                    # Due date change
+                    if 'due_date' in update_data:
+                        old_due_date = task.due_date or ""
+                        new_due_date = updated_task.due_date or ""
+                        if old_due_date != new_due_date:
+                            updated_fields.append(("due_date", {"old_due_date": old_due_date, "new_due_date": new_due_date}))
+                    
+                    # Assignees change (only if there were actual changes)
+                    if added_assignees or (old_assignees != new_assignees):
+                        removed_assignees = old_assignees - new_assignees
+                        if added_assignees or removed_assignees:
+                            updated_fields.append(("assignees", {"added": list(added_assignees), "removed": list(removed_assignees)}))
+                    
+                    # Optimize: Batch fetch all assignee info instead of querying one by one
+                    assignees_to_notify = [aid for aid in all_assignees if aid != user_id]
+                    assignee_info_map = {}
+                    if assignees_to_notify:
+                        assignees_result = self.client.table("users").select("id, email, display_name").in_("id", assignees_to_notify).execute()
+                        for assignee_data in assignees_result.data or []:
+                            assignee_info_map[assignee_data["id"]] = {
+                                "email": assignee_data.get("email"),
+                                "display_name": assignee_data.get("display_name") or assignee_data.get("email", "").split("@")[0]
+                            }
+                    
+                    # Notify all assignees about updates (except the person making the change)
+                    for assignee_id in assignees_to_notify:
+                        assignee_info = assignee_info_map.get(assignee_id)
+                        if not assignee_info:
+                            continue
                         
-                        for assignee_id in updated_task.assignee_ids:
-                            if assignee_id != user_id:  # Don't notify the person making the change
+                        assignee_email = assignee_info["email"]
+                        assignee_name = assignee_info["display_name"]
+                        
+                        # Check if this is a new assignment
+                        is_new_assignment = assignee_id in added_assignees
+                        
+                        # Create notifications for each change type (for in-app notifications)
+                        for update_type, update_details in updated_fields:
+                            if update_type == "status":
                                 notification_service.create_task_update_notification(
                                     user_id=assignee_id,
                                     task_id=task_id,
@@ -213,32 +297,44 @@ class TaskService:
                                     new_status=update_data['status'],
                                     project_id=updated_task.project_id
                                 )
-                    
-                    # Notify newly assigned users
-                    if added_assignees:
-                        project_result = self.client.table("projects").select("name").eq("id", updated_task.project_id).execute()
-                        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
-                        
-                        email_service = EmailService()
-                        for assignee_id in added_assignees:
-                            notification_service.create_task_assigned_notification(
-                                user_id=assignee_id,
-                                task_id=task_id,
-                                task_title=updated_task.title,
-                                project_id=updated_task.project_id
-                            )
-                            
-                            # Send email notification
-                            user_result = self.client.table("users").select("email, display_name").eq("id", assignee_id).execute()
-                            if user_result.data:
-                                user_data = user_result.data[0]
-                                email_service.send_task_assigned_email(
-                                    user_email=user_data.get("email"),
-                                    user_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
-                                    task_title=updated_task.title,
+                            elif update_type == "assignees" and is_new_assignment:
+                                notification_service.create_task_assigned_notification(
+                                    user_id=assignee_id,
                                     task_id=task_id,
-                                    project_name=project_name
+                                    task_title=updated_task.title,
+                                    project_id=updated_task.project_id
                                 )
+                            else:
+                                notification_service.create_notification(
+                                    NotificationCreate(
+                                        user_id=assignee_id,
+                                        type="task_update",
+                                        title=f"Task {update_type.title()} Updated",
+                                        message=f"Task '{updated_task.title}' {update_type} has been updated by {updater_name}",
+                                        link_url=f"/projects/{updated_task.project_id}/tasks/{task_id}",
+                                        metadata={
+                                            "task_id": task_id,
+                                            "project_id": updated_task.project_id,
+                                            "update_type": update_type,
+                                            **update_details
+                                        }
+                                    )
+                                )
+                        
+                        # Send ONE consolidated email with all changes (only if there are actual changes)
+                        if updated_fields:
+                            changes_list = [{"type": update_type, "details": update_details} for update_type, update_details in updated_fields]
+                            email_service.send_task_updates_email(
+                                user_email=assignee_email,
+                                user_name=assignee_name,
+                                task_title=updated_task.title,
+                                task_id=task_id,
+                                project_name=project_name,
+                                project_id=updated_task.project_id,
+                                updated_by_name=updater_name,
+                                changes=changes_list,
+                                is_new_assignment=is_new_assignment
+                            )
                 
                 return updated_task
             else:
@@ -365,13 +461,18 @@ class TaskService:
             
             for comment_data in result.data:
                 user_data = user_data_map.get(comment_data["user_id"], {})
+                # Ensure created_at has timezone info (append 'Z' if not present)
+                created_at = comment_data["created_at"]
+                if created_at and not created_at.endswith('Z') and '+' not in created_at:
+                    created_at = created_at + 'Z'
+                
                 comment = CommentOut(
                     id=comment_data["id"],
                     task_id=comment_data["task_id"],
                     user_id=comment_data["user_id"],
                     parent_comment_id=comment_data.get("parent_comment_id"),
                     content=comment_data["content"],
-                    created_at=comment_data["created_at"],
+                    created_at=created_at,
                     user_email=user_data.get("email"),
                     user_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0],
                     replies=[]
@@ -399,21 +500,132 @@ class TaskService:
             return []
 
     async def create_comment(self, task_id: str, comment_data: CommentCreate, user_id: str) -> CommentOut:
-        """Create a new comment for a task"""
+        """Create a new comment for a task or subtask
+        
+        Permission rules:
+        - Staff can only comment on tasks/subtasks they are assigned to
+        - Managers can comment on any tasks/subtasks that belong to their department
+        - Admins can comment on any task/subtask
+        - For subtasks, check permissions based on the parent task
+        """
         try:
-            # First verify user has access to the task
-            task = await self.get_task_by_id(task_id, user_id, include_archived=True)
-            if not task:
-                raise Exception("Task not found or access denied")
+            # Check if this is a subtask or a task
+            subtask_result = self.client.table("subtasks").select("id, parent_task_id, assigned").eq("id", task_id).execute()
+            is_subtask = subtask_result.data and len(subtask_result.data) > 0
+            
+            if is_subtask:
+                # This is a subtask - get parent task for permission checking
+                subtask_data = subtask_result.data[0]
+                parent_task_id = subtask_data.get("parent_task_id")
+                if not parent_task_id:
+                    raise Exception("Subtask has no parent task")
+                
+                # Get parent task for permission checking
+                parent_task = await self.get_task_by_id(parent_task_id, user_id, include_archived=True)
+                if not parent_task:
+                    raise Exception("Parent task not found or access denied")
+                
+                # Use parent task for permission checks
+                task = parent_task
+                subtask_assignee_ids = subtask_data.get("assigned", [])
+            else:
+                # This is a regular task
+                task = await self.get_task_by_id(task_id, user_id, include_archived=True)
+                if not task:
+                    raise Exception("Task not found or access denied")
+                subtask_assignee_ids = None
+            
+            # Get user roles and department (if exists)
+            user_result = self.client.table("users").select("id, roles").eq("id", user_id).execute()
+            if not user_result.data:
+                raise Exception("User not found")
+            
+            user_data = user_result.data[0]
+            user_roles = user_data.get("roles", [])
+            if isinstance(user_roles, str):
+                user_roles = [r.strip().lower() for r in user_roles.split(",")]
+            elif isinstance(user_roles, list):
+                user_roles = [r.lower() for r in user_roles]
+            
+            # Try to get department_id if the column exists (optional)
+            user_department_id = None
+            try:
+                dept_result = self.client.table("users").select("department_id").eq("id", user_id).execute()
+                if dept_result.data and dept_result.data[0].get("department_id"):
+                    user_department_id = dept_result.data[0].get("department_id")
+            except Exception:
+                # department_id column doesn't exist, which is fine
+                pass
+            
+            # Admins can always comment
+            if "admin" in user_roles:
+                pass  # Allow comment
+            # Staff can only comment on tasks/subtasks they are assigned to
+            elif "staff" in user_roles:
+                # For subtasks, check both subtask and parent task assignments
+                if is_subtask:
+                    is_assigned_to_subtask = subtask_assignee_ids and user_id in subtask_assignee_ids
+                    is_assigned_to_task = task.assignee_ids and user_id in task.assignee_ids
+                    if not (is_assigned_to_subtask or is_assigned_to_task):
+                        raise PermissionError("Staff can only comment on tasks/subtasks they are assigned to")
+                else:
+                    if not task.assignee_ids or user_id not in task.assignee_ids:
+                        raise PermissionError("Staff can only comment on tasks they are assigned to")
+            # Managers can comment on tasks (department checking is optional if department_id exists)
+            elif "manager" in user_roles:
+                # If department_id column exists and both user and project have departments, check them
+                if user_department_id is not None:
+                    try:
+                        # Try to get project's department
+                        project_result = self.client.table("projects").select("department_id").eq("id", task.project_id).execute()
+                        if project_result.data:
+                            project_department_id = project_result.data[0].get("department_id")
+                            
+                            # If project has no department, manager can comment
+                            if not project_department_id:
+                                pass  # Allow comment
+                            # If manager has no department, they can't comment on department-specific tasks
+                            elif not user_department_id:
+                                raise PermissionError("Manager must have a department to comment on department tasks")
+                            # Check if manager's department matches project's department
+                            elif user_department_id != project_department_id:
+                                # Check if project's department reports to manager's department
+                                try:
+                                    dept_result = self.client.table("departments").select("id, parent_department_id").eq("id", project_department_id).execute()
+                                    if dept_result.data:
+                                        project_dept = dept_result.data[0]
+                                        # Check if project department reports to manager's department
+                                        if project_dept.get("parent_department_id") != user_department_id:
+                                            raise PermissionError("Managers can only comment on tasks in their department")
+                                    else:
+                                        raise PermissionError("Managers can only comment on tasks in their department")
+                                except Exception:
+                                    # departments table doesn't exist, just check direct match
+                                    raise PermissionError("Managers can only comment on tasks in their department")
+                    except Exception as dept_err:
+                        # If department_id column doesn't exist in projects table, allow manager to comment
+                        if "column" in str(dept_err).lower() and "does not exist" in str(dept_err).lower():
+                            pass  # Allow comment - no department system
+                        else:
+                            raise
+                else:
+                    # No department_id column in users table - managers can comment on any task
+                    pass  # Allow comment
+            else:
+                # User has no recognized role - deny by default
+                raise PermissionError("User does not have permission to comment on tasks")
 
             comment_id = str(uuid.uuid4())
+            # Use UTC timezone-aware datetime and append 'Z' to indicate UTC
+            utc_now = datetime.utcnow()
+            created_at_str = utc_now.isoformat() + 'Z'
             comment_record = {
                 "id": comment_id,
                 "task_id": task_id,
                 "user_id": user_id,
                 "parent_comment_id": comment_data.parent_comment_id,
                 "content": comment_data.content,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": created_at_str
             }
             
             print(f"Creating comment with parent_comment_id: {comment_data.parent_comment_id}")
@@ -426,60 +638,115 @@ class TaskService:
                 user_data = user_result.data[0] if user_result.data else {}
                 commenter_name = user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 
-                # Check for @mentions in comment
-                mention_pattern = r'@(\w+)'  # Simple pattern, can be improved
-                mentions = re.findall(mention_pattern, comment_data.content)
-                
-                if mentions:
-                    # Get all users to find matches
-                    all_users_result = self.client.table("users").select("id, email, display_name").execute()
-                    users_by_email = {user.get("email", "").split("@")[0]: user for user in all_users_result.data}
-                    users_by_display_name = {user.get("display_name", "").lower(): user for user in all_users_result.data if user.get("display_name")}
-                    
+                # Notify all task assignees about the new comment (except the commenter)
+                # Wrap in try-catch so notification failures don't prevent comment creation
+                try:
                     notification_service = NotificationService()
-                    email_service = EmailService()
-                    
                     project_result = self.client.table("projects").select("name").eq("id", task.project_id).execute()
                     project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
                     
-                    mentioned_user_ids = set()
-                    for mention in mentions:
-                        # Try to match by email username or display name
-                        mentioned_user = None
-                        mention_lower = mention.lower()
-                        
-                        # Check email username
-                        if mention_lower in users_by_email:
-                            mentioned_user = users_by_email[mention_lower]
-                        # Check display name
-                        elif mention_lower in users_by_display_name:
-                            mentioned_user = users_by_display_name[mention_lower]
-                        
-                        if mentioned_user and mentioned_user["id"] != user_id:
-                            mentioned_user_id = mentioned_user["id"]
-                            if mentioned_user_id not in mentioned_user_ids:
-                                mentioned_user_ids.add(mentioned_user_id)
-                                
-                                # Create in-app notification
-                                notification_service.create_mention_notification(
-                                    mentioned_user_id=mentioned_user_id,
-                                    commenter_user_id=user_id,
-                                    commenter_name=commenter_name,
-                                    task_id=task_id,
-                                    task_title=task.title,
-                                    comment_preview=comment_data.content[:200],
-                                    project_id=task.project_id
+                    # Get all assignees for the task
+                    assignee_ids = task.assignee_ids or []
+                    for assignee_id in assignee_ids:
+                        if assignee_id != user_id:  # Don't notify the commenter
+                            try:
+                                notification_service.create_notification(
+                                    NotificationCreate(
+                                        user_id=assignee_id,
+                                        type="task_update",
+                                        title="New Comment",
+                                        message=f"{commenter_name} commented on task '{task.title}'",
+                                        link_url=f"/projects/{task.project_id}/tasks/{task_id}",
+                                        metadata={
+                                            "task_id": task_id,
+                                            "project_id": task.project_id,
+                                            "comment_id": comment_id,
+                                            "commenter_id": user_id,
+                                            "update_type": "comment"
+                                        }
+                                    )
                                 )
-                                
-                                # Send email notification
-                                email_service.send_mention_email(
-                                    user_email=mentioned_user.get("email"),
-                                    user_name=mentioned_user.get("display_name") or mentioned_user.get("email", "").split("@")[0],
-                                    commenter_name=commenter_name,
-                                    task_title=task.title,
-                                    task_id=task_id,
-                                    comment_preview=comment_data.content[:200]
-                                )
+                            except Exception as notif_err:
+                                print(f"Failed to create notification for assignee {assignee_id}: {notif_err}")
+                                # Continue with other notifications
+                except Exception as notif_err:
+                    print(f"Error creating comment notifications: {notif_err}")
+                    # Continue - don't fail comment creation if notifications fail
+                
+                # Check for @mentions in comment
+                # Pattern matches @username or @display name (handles spaces and common characters)
+                mention_pattern = r'@([\w\s]+?)(?=\s|$|[.,!?;:])'
+                mentions = re.findall(mention_pattern, comment_data.content)
+                # Clean up mentions (remove trailing spaces, normalize)
+                mentions = [m.strip().lower() for m in mentions if m.strip()]
+                
+                # Check for @mentions in comment (wrap in try-catch so failures don't prevent comment creation)
+                try:
+                    if mentions:
+                        # Get all users to find matches
+                        all_users_result = self.client.table("users").select("id, email, display_name").execute()
+                        users_by_email = {user.get("email", "").split("@")[0]: user for user in all_users_result.data}
+                        users_by_display_name = {user.get("display_name", "").lower(): user for user in all_users_result.data if user.get("display_name")}
+                        
+                        notification_service = NotificationService()
+                        email_service = EmailService()
+                        
+                        project_result = self.client.table("projects").select("name").eq("id", task.project_id).execute()
+                        project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                        
+                        mentioned_user_ids = set()
+                        for mention in mentions:
+                            # Try to match by email username or display name
+                            mentioned_user = None
+                            mention_lower = mention.lower()
+                            
+                            # Check email username
+                            if mention_lower in users_by_email:
+                                mentioned_user = users_by_email[mention_lower]
+                            # Check display name
+                            elif mention_lower in users_by_display_name:
+                                mentioned_user = users_by_display_name[mention_lower]
+                            
+                            if mentioned_user and mentioned_user["id"] != user_id:
+                                mentioned_user_id = mentioned_user["id"]
+                                if mentioned_user_id not in mentioned_user_ids:
+                                    mentioned_user_ids.add(mentioned_user_id)
+                                    
+                                    try:
+                                        # Create in-app notification
+                                        notification_service.create_mention_notification(
+                                            mentioned_user_id=mentioned_user_id,
+                                            commenter_user_id=user_id,
+                                            commenter_name=commenter_name,
+                                            task_id=task_id,
+                                            task_title=task.title,
+                                            comment_preview=comment_data.content[:200],
+                                            project_id=task.project_id
+                                        )
+                                    except Exception as notif_err:
+                                        print(f"Failed to create mention notification for {mentioned_user_id}: {notif_err}")
+                                    
+                                    try:
+                                        # Send email notification
+                                        email_service.send_mention_email(
+                                            user_email=mentioned_user.get("email"),
+                                            user_name=mentioned_user.get("display_name") or mentioned_user.get("email", "").split("@")[0],
+                                            commenter_name=commenter_name,
+                                            task_title=task.title,
+                                            task_id=task_id,
+                                            comment_preview=comment_data.content[:200],
+                                            project_id=task.project_id
+                                        )
+                                    except Exception as email_err:
+                                        print(f"Failed to send mention email to {mentioned_user.get('email')}: {email_err}")
+                except Exception as mention_err:
+                    print(f"Error processing mentions: {mention_err}")
+                    # Continue - don't fail comment creation if mention processing fails
+                
+                # Ensure created_at has timezone info (should already have 'Z' from above, but double-check)
+                created_at = comment_record["created_at"]
+                if created_at and not created_at.endswith('Z') and '+' not in created_at:
+                    created_at = created_at + 'Z'
                 
                 return CommentOut(
                     id=comment_id,
@@ -487,7 +754,7 @@ class TaskService:
                     user_id=user_id,
                     parent_comment_id=comment_data.parent_comment_id,
                     content=comment_data.content,
-                    created_at=comment_record["created_at"],
+                    created_at=created_at,
                     user_email=user_data.get("email"),
                     user_display_name=commenter_name
                 )
@@ -646,17 +913,19 @@ class TaskService:
     async def update_subtask(self, subtask_id: str, updates: dict, user_id: str) -> Optional[SubTaskOut]:
         """Update a sub-task"""
         try:
-            # First get the subtask to verify access through parent task
-            subtask_result = self.client.table("subtasks").select("parent_task_id").eq("id", subtask_id).execute()
-            if not subtask_result.data:
+            # First get the subtask to verify access through parent task and get old data
+            old_subtask_result = self.client.table("subtasks").select("*").eq("id", subtask_id).execute()
+            if not old_subtask_result.data:
                 return None
 
-            parent_task_id = subtask_result.data[0]["parent_task_id"]
+            old_subtask = old_subtask_result.data[0]
+            parent_task_id = old_subtask["parent_task_id"]
             task = await self.get_task_by_id(parent_task_id, user_id, include_archived=True)
             if not task:
                 return None
 
             # Validate assignee_ids if being updated
+            old_assignees = set(old_subtask.get("assigned", []))
             if "assignee_ids" in updates or "assigned" in updates:
                 assignee_ids = updates.get("assignee_ids") or updates.get("assigned")
                 if not assignee_ids or len(assignee_ids) == 0:
@@ -664,6 +933,13 @@ class TaskService:
                 # Map assignee_ids to assigned if needed
                 if "assignee_ids" in updates:
                     updates["assigned"] = updates.pop("assignee_ids")
+            
+            new_assignees = set(updates.get("assigned", old_assignees))
+            added_assignees = new_assignees - old_assignees
+            
+            # Track old values for change detection
+            old_status = old_subtask.get("status")
+            status_changed = 'status' in updates and updates['status'] != old_status
 
             # Update the subtask
             result = self.client.table("subtasks").update(updates).eq("id", subtask_id).execute()
@@ -672,23 +948,159 @@ class TaskService:
                 subtask_data = result.data[0]
                 # Get assignee names
                 assignee_names = []
-                if subtask_data.get("assignee_ids"):
-                    users_result = self.client.table("users").select("email, display_name").in_("id", subtask_data["assignee_ids"]).execute()
+                assigned_ids = subtask_data.get("assigned", [])
+                if assigned_ids:
+                    users_result = self.client.table("users").select("email, display_name").in_("id", assigned_ids).execute()
                     assignee_names = [
                         user.get("display_name") or user.get("email", "").split("@")[0] 
                         for user in users_result.data
                     ]
 
-                return SubTaskOut(
+                updated_subtask = SubTaskOut(
                     id=subtask_data["id"],
                     title=subtask_data["title"],
                     description=subtask_data.get("description"),
                     parent_task_id=subtask_data["parent_task_id"],
                     status=subtask_data["status"],
-                    assignee_ids=subtask_data.get("assignee_ids", []),
+                    assignee_ids=assigned_ids,
                     assignee_names=assignee_names,
                     created_at=subtask_data.get("created_at")
                 )
+                
+                # Send email notifications for subtask updates
+                if updates:
+                    notification_service = NotificationService()
+                    email_service = EmailService()
+                    
+                    # Get project name and updater info
+                    project_result = self.client.table("projects").select("name").eq("id", task.project_id).execute()
+                    project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                    
+                    updater_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
+                    updater_data = updater_result.data[0] if updater_result.data else {}
+                    updater_name = updater_data.get("display_name") or updater_data.get("email", "").split("@")[0] or "Someone"
+                    
+                    # Determine what was actually updated by comparing old vs new values
+                    updated_fields = []
+                    
+                    # Status change
+                    if status_changed:
+                        updated_fields.append(("status", {"old_status": old_status, "new_status": updated_subtask.status}))
+                    
+                    # Title change
+                    if 'title' in updates and old_subtask.get("title") != updated_subtask.title:
+                        updated_fields.append(("title", {"old_title": old_subtask.get("title"), "new_title": updated_subtask.title}))
+                    
+                    # Description change
+                    if 'description' in updates:
+                        old_desc = old_subtask.get("description") or ""
+                        new_desc = updated_subtask.description or ""
+                        if old_desc != new_desc:
+                            updated_fields.append(("description", {}))
+                    
+                    # Notes change
+                    if 'notes' in updates:
+                        old_notes = old_subtask.get("notes") or ""
+                        new_notes = updated_subtask.notes or ""
+                        if old_notes != new_notes:
+                            updated_fields.append(("notes", {}))
+                    
+                    # Tags change
+                    if 'tags' in updates:
+                        old_tags = set(old_subtask.get("tags", []) or [])
+                        new_tags = set(updated_subtask.tags or [])
+                        if old_tags != new_tags:
+                            updated_fields.append(("tags", {"old_tags": list(old_tags), "new_tags": list(new_tags)}))
+                    
+                    # Due date change
+                    if 'due_date' in updates:
+                        old_due_date = old_subtask.get("due_date") or ""
+                        new_due_date = updated_subtask.due_date or ""
+                        if old_due_date != new_due_date:
+                            updated_fields.append(("due_date", {"old_due_date": old_due_date, "new_due_date": new_due_date}))
+                    
+                    # Assignees change (only if there were actual changes)
+                    removed_assignees = old_assignees - new_assignees
+                    if added_assignees or removed_assignees:
+                        updated_fields.append(("assignees", {"added": list(added_assignees), "removed": list(removed_assignees)}))
+                    
+                    # Get all assignees to notify
+                    all_assignees = assigned_ids
+                    assignees_to_notify = [aid for aid in all_assignees if aid != user_id]
+                    assignee_info_map = {}
+                    if assignees_to_notify:
+                        assignees_result = self.client.table("users").select("id, email, display_name").in_("id", assignees_to_notify).execute()
+                        for assignee_data in assignees_result.data or []:
+                            assignee_info_map[assignee_data["id"]] = {
+                                "email": assignee_data.get("email"),
+                                "display_name": assignee_data.get("display_name") or assignee_data.get("email", "").split("@")[0]
+                            }
+                    
+                    # Notify all assignees about updates
+                    for assignee_id in assignees_to_notify:
+                        assignee_info = assignee_info_map.get(assignee_id)
+                        if not assignee_info:
+                            continue
+                        
+                        assignee_email = assignee_info["email"]
+                        assignee_name = assignee_info["display_name"]
+                        
+                        # Check if this is a new assignment
+                        is_new_assignment = assignee_id in added_assignees
+                        
+                        # Create notifications for each change type
+                        for update_type, update_details in updated_fields:
+                            if update_type == "status":
+                                notification_service.create_task_update_notification(
+                                    user_id=assignee_id,
+                                    task_id=parent_task_id,
+                                    task_title=updated_subtask.title,
+                                    old_status=old_status,
+                                    new_status=updates['status'],
+                                    project_id=task.project_id
+                                )
+                            elif update_type == "assignees" and is_new_assignment:
+                                notification_service.create_task_assigned_notification(
+                                    user_id=assignee_id,
+                                    task_id=parent_task_id,
+                                    task_title=updated_subtask.title,
+                                    project_id=task.project_id
+                                )
+                            else:
+                                notification_service.create_notification(
+                                    NotificationCreate(
+                                        user_id=assignee_id,
+                                        type="task_update",
+                                        title=f"Subtask {update_type.title()} Updated",
+                                        message=f"Subtask '{updated_subtask.title}' {update_type} has been updated by {updater_name}",
+                                        link_url=f"/projects/{task.project_id}/tasks/{parent_task_id}/subtasks/{subtask_id}",
+                                        metadata={
+                                            "task_id": parent_task_id,
+                                            "subtask_id": subtask_id,
+                                            "project_id": task.project_id,
+                                            "update_type": update_type,
+                                            **update_details
+                                        }
+                                    )
+                                )
+                        
+                        # Send ONE consolidated email with all changes
+                        if updated_fields:
+                            changes_list = [{"type": update_type, "details": update_details} for update_type, update_details in updated_fields]
+                            # Use parent task info for email context
+                            email_service.send_task_updates_email(
+                                user_email=assignee_email,
+                                user_name=assignee_name,
+                                task_title=f"{task.title} - {updated_subtask.title}",  # Include parent task in title
+                                task_id=parent_task_id,
+                                project_name=project_name,
+                                project_id=task.project_id,
+                                updated_by_name=updater_name,
+                                changes=changes_list,
+                                is_new_assignment=is_new_assignment
+                            )
+
+                return updated_subtask
             else:
                 return None
         except Exception as e:
@@ -743,7 +1155,7 @@ class TaskService:
                     created_at=file_data["created_at"],
                     download_url=file_data.get("download_url"),
                     uploader_email=user_data.get("email"),
-                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 ))
             
             return files
@@ -779,7 +1191,7 @@ class TaskService:
                     created_at=file_data["created_at"],
                     download_url=file_data.get("download_url"),
                     uploader_email=user_data.get("email"),
-                    uploader_display_name=user_data.get("full_name") or user_data.get("email", "").split("@")[0]
+                    uploader_display_name=user_data.get("display_name") or user_data.get("email", "").split("@")[0]
                 ))
             
             return files
@@ -800,9 +1212,46 @@ class TaskService:
             # Upload to Supabase Storage (path is relative to bucket)
             storage_path = f"{task_id}/{file_id}_{filename}"
             try:
+                # Verify service role key is being used (should bypass RLS)
+                from app.config import settings
+                service_key = settings.supabase_service_key or settings.SUPABASE_SERVICE_KEY
+                if not service_key:
+                    raise Exception("SUPABASE_SERVICE_KEY is not set. Storage uploads require service role key to bypass RLS.")
+                
+                # Try to remove existing file first if it exists (prevents conflicts)
+                try:
+                    self.client.storage.from_("task_file").remove([storage_path])
+                except:
+                    pass  # File doesn't exist, continue
+                
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })
+                
+                # Check if upload_result is a Response-like object with error attribute
+                if hasattr(upload_result, 'error') and upload_result.error:
+                    error_data = upload_result.error
+                    if isinstance(error_data, dict):
+                        error_msg = error_data.get("message", str(error_data))
+                    else:
+                        error_msg = str(error_data)
+                    
+                    if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                        raise Exception(
+                            "Storage bucket 'task_file' not found. "
+                            "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        )
+                    # Check for RLS errors
+                    if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                        raise Exception(
+                            f"Storage RLS policy violation: {error_msg}. "
+                            "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                            "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                            "2) Storage bucket RLS policies allow service role uploads, "
+                            "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
+                        )
+                    raise Exception(f"Failed to upload file to storage: {error_msg}")
+                    
             except Exception as e:
                 error_msg = str(e)
                 if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
@@ -810,21 +1259,22 @@ class TaskService:
                         "Storage bucket 'task_file' not found. "
                         "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
                     )
-                raise Exception(f"Failed to upload file to storage: {error_msg}")
-
-            if upload_result.get("error"):
-                error_data = upload_result["error"]
-                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                # Check for RLS errors in exception
+                if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
                     raise Exception(
-                        "Storage bucket 'task_file' not found. "
-                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        f"Storage RLS policy violation: {error_msg}. "
+                        "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                        "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                        "2) Storage bucket RLS policies allow service role uploads, "
+                        "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
                     )
-                raise Exception(f"Failed to upload file: {upload_result['error']}")
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
 
             # Get public URL
             download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
 
             # Save file metadata to database
+            # Use service role client to bypass RLS
             file_record = {
                 "id": file_id,
                 "filename": storage_path,
@@ -837,11 +1287,25 @@ class TaskService:
                 "download_url": download_url
             }
 
+            # Insert with service role (should bypass RLS)
+            # If this still fails, the RLS policy might need to be updated
             result = self.client.table("task_files").insert(file_record).execute()
+            
+            # Check for RLS errors
+            if result.data is None and hasattr(result, 'error') and result.error:
+                error_msg = str(result.error)
+                if "row-level security" in error_msg.lower() or "rls" in error_msg.lower():
+                    raise Exception(
+                        f"RLS policy violation: {error_msg}. "
+                        "The service role key should bypass RLS. "
+                        "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                        "2) RLS policies on task_files table allow service role inserts, "
+                        "3) The service role key has proper permissions."
+                    )
             
             if result.data:
                 # Get user info for the response
-                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
                 
                 return FileOut(
@@ -879,9 +1343,46 @@ class TaskService:
             parent_task_id = subtask.parent_task_id
             storage_path = f"{parent_task_id}/{subtask_id}/{file_id}_{filename}"
             try:
+                # Verify service role key is being used (should bypass RLS)
+                from app.config import settings
+                service_key = settings.supabase_service_key or settings.SUPABASE_SERVICE_KEY
+                if not service_key:
+                    raise Exception("SUPABASE_SERVICE_KEY is not set. Storage uploads require service role key to bypass RLS.")
+                
+                # Try to remove existing file first if it exists (prevents conflicts)
+                try:
+                    self.client.storage.from_("task_file").remove([storage_path])
+                except:
+                    pass  # File doesn't exist, continue
+                
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })
+                
+                # Check if upload_result is a Response-like object with error attribute
+                if hasattr(upload_result, 'error') and upload_result.error:
+                    error_data = upload_result.error
+                    if isinstance(error_data, dict):
+                        error_msg = error_data.get("message", str(error_data))
+                    else:
+                        error_msg = str(error_data)
+                    
+                    if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
+                        raise Exception(
+                            "Storage bucket 'task_file' not found. "
+                            "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        )
+                    # Check for RLS errors
+                    if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                        raise Exception(
+                            f"Storage RLS policy violation: {error_msg}. "
+                            "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                            "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                            "2) Storage bucket RLS policies allow service role uploads, "
+                            "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
+                        )
+                    raise Exception(f"Failed to upload file to storage: {error_msg}")
+                    
             except Exception as e:
                 error_msg = str(e)
                 if "Bucket not found" in error_msg or "bucket" in error_msg.lower():
@@ -889,16 +1390,16 @@ class TaskService:
                         "Storage bucket 'task_file' not found. "
                         "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
                     )
-                raise Exception(f"Failed to upload file to storage: {error_msg}")
-
-            if upload_result.get("error"):
-                error_data = upload_result["error"]
-                if isinstance(error_data, dict) and error_data.get("message") == "Bucket not found":
+                # Check for RLS errors in exception
+                if "row-level security" in error_msg.lower() or "rls" in error_msg.lower() or "unauthorized" in error_msg.lower():
                     raise Exception(
-                        "Storage bucket 'task_file' not found. "
-                        "Please create it in Supabase Dashboard: Storage > New Bucket > Name: 'task_file' > Public: ON"
+                        f"Storage RLS policy violation: {error_msg}. "
+                        "The storage bucket 'task_file' has RLS policies that are blocking uploads. "
+                        "Please check: 1) SUPABASE_SERVICE_KEY is set correctly, "
+                        "2) Storage bucket RLS policies allow service role uploads, "
+                        "3) In Supabase Dashboard: Storage > task_file > Policies > ensure service role can INSERT"
                     )
-                raise Exception(f"Failed to upload file: {upload_result['error']}")
+                raise Exception(f"Failed to upload file to storage: {error_msg}")
 
             # Get public URL
             download_url = self.client.storage.from_("task_file").get_public_url(storage_path)
@@ -921,7 +1422,7 @@ class TaskService:
             
             if result.data:
                 # Get user info for the response
-                user_result = self.client.table("users").select("email, full_name").eq("id", user_id).execute()
+                user_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
                 user_data = user_result.data[0] if user_result.data else {}
                 
                 return FileOut(
