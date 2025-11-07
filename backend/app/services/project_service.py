@@ -381,8 +381,8 @@ class ProjectService:
             elif isinstance(user_roles, list):
                 user_roles = [r.lower() for r in user_roles]
             
-            # Managers can see all tasks
-            if "manager" in user_roles:
+            # Managers and admins can see all tasks
+            if "manager" in user_roles or "admin" in user_roles:
                 return tasks
             
             # If department_id column doesn't exist, use assignment-based filtering

@@ -16,7 +16,7 @@ import {
   SubTask,
   TaskFile,
 } from "@/lib/api";
-import { isAdmin, isManager } from "@/utils/role-utils";
+import { isAdmin, isManager, canAdminManage } from "@/utils/role-utils";
 import {
   ArrowLeft,
   Edit,
@@ -46,24 +46,29 @@ const formatSingaporeTime = (dateString: string): string => {
   try {
     // Normalize timestamp: ensure it has timezone info
     let normalizedDateString = dateString;
-    
+
     // If timestamp doesn't have timezone info, assume it's UTC and append 'Z'
-    if (dateString && !dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-', 10)) {
+    if (
+      dateString &&
+      !dateString.endsWith("Z") &&
+      !dateString.includes("+") &&
+      !dateString.includes("-", 10)
+    ) {
       // Check if it's a valid ISO format without timezone (e.g., "2023-10-27T12:57:00")
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(dateString)) {
-        normalizedDateString = dateString + 'Z';
+        normalizedDateString = dateString + "Z";
       }
     }
-    
+
     // Parse the date - JavaScript's Date will interpret 'Z' as UTC
     const date = new Date(normalizedDateString);
-    
+
     // Check if date is valid
     if (isNaN(date.getTime())) {
       console.warn("Invalid date string:", dateString);
       return dateString; // Return original if invalid
     }
-    
+
     // Format in Singapore timezone
     return date.toLocaleString("en-SG", {
       timeZone: "Asia/Singapore",
@@ -144,11 +149,15 @@ function CommentItem({
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-              {comment.author_name?.charAt(0) || comment.user_display_name?.charAt(0) || "U"}
+              {comment.user_display_name?.charAt(0) ||
+                comment.user_email?.charAt(0) ||
+                "U"}
             </div>
             <div>
               <p className="font-medium text-gray-900">
-                {comment.author_name || comment.user_display_name || "Unknown"}
+                {comment.user_display_name ||
+                  comment.user_email?.split("@")[0] ||
+                  "Unknown"}
               </p>
               <p className="text-sm text-gray-500">
                 {formatSingaporeTime(comment.created_at)}
@@ -169,7 +178,9 @@ function CommentItem({
               <button
                 onClick={() => onDelete(comment.id)}
                 className="text-red-500 hover:text-red-700 p-1"
-                title={isCreator ? "Delete your comment" : "Delete comment (Admin)"}
+                title={
+                  isCreator ? "Delete your comment" : "Delete comment (Admin)"
+                }
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -203,16 +214,21 @@ function CommentItem({
           </div>
         ) : (
           <p className="mt-3 text-gray-700 whitespace-pre-wrap">
-            {comment.content.split(/(@[\w\s]+?)(?=\s|$|[.,!?;:])/).map((part, index) => {
-              if (part.startsWith("@")) {
-                return (
-                  <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded font-medium">
-                    {part}
-                  </span>
-                );
-              }
-              return <span key={index}>{part}</span>;
-            })}
+            {comment.content
+              .split(/(@[\w\s]+?)(?=\s|$|[.,!?;:])/)
+              .map((part, index) => {
+                if (part.startsWith("@")) {
+                  return (
+                    <span
+                      key={index}
+                      className="bg-blue-100 text-blue-700 px-1 rounded font-medium"
+                    >
+                      {part}
+                    </span>
+                  );
+                }
+                return <span key={index}>{part}</span>;
+              })}
           </p>
         )}
         {!isEditing && (
@@ -309,7 +325,7 @@ export default function SubTaskDetailPage() {
   const isProjectOwner = project?.owner_id === user?.id;
   const isTaskAssignee = subtask?.assignee_ids?.includes(user?.id || "");
   const canEdit =
-    isProjectOwner || isTaskAssignee || isAdmin(user) || isManager(user);
+    isProjectOwner || isTaskAssignee || canAdminManage(user) || isManager(user);
 
   useEffect(() => {
     if (projectId && taskId && subtaskId) {
@@ -330,7 +346,14 @@ export default function SubTaskDetailPage() {
 
       setTask(taskData);
       setSubtask(subtaskData);
-      setProjectMembers(membersData);
+      // Convert project members to user format
+      const memberUsers: User[] = membersData.map((member) => ({
+        id: member.user_id,
+        email: member.user_email || "",
+        display_name: member.user_display_name || undefined,
+        roles: [member.role],
+      }));
+      setProjectMembers(memberUsers);
 
       // Try to load project data (optional, since it's failing)
       try {
@@ -418,12 +441,15 @@ export default function SubTaskDetailPage() {
 
     try {
       setAddingComment(true);
-      const comment = await CommentsAPI.create(subtaskId as string, newComment.trim());
+      const comment = await CommentsAPI.create(
+        subtaskId as string,
+        newComment.trim()
+      );
       // Ensure comment has proper structure with empty replies array
       const newCommentWithReplies: Comment = {
         ...comment,
         replies: comment.replies || [],
-        user_display_name: comment.user_display_name || user?.display_name,
+        user_display_name: comment.user_display_name || user?.full_name,
         user_email: comment.user_email || user?.email,
       };
       setComments([...comments, newCommentWithReplies]);
@@ -442,49 +468,52 @@ export default function SubTaskDetailPage() {
         replyText.trim(),
         parentCommentId
       );
-      
+
       // Ensure reply has proper structure
       const newReply: Comment = {
         ...reply,
         replies: [],
-        user_display_name: reply.user_display_name || user?.display_name,
+        user_display_name: reply.user_display_name || user?.full_name,
         user_email: reply.user_email || user?.email,
       };
-      
+
       // Immediately add reply to parent comment's replies array
-      setComments(comments.map(comment => {
-        if (comment.id === parentCommentId) {
-          return {
-            ...comment,
-            replies: [...(comment.replies || []), newReply],
-          };
-        }
-        // Also check nested replies
-        if (comment.replies) {
-          return {
-            ...comment,
-            replies: comment.replies.map(replyItem => {
-              if (replyItem.id === parentCommentId) {
-                return {
-                  ...replyItem,
-                  replies: [...(replyItem.replies || []), newReply],
-                };
-              }
-              return replyItem;
-            }),
-          };
-        }
-        return comment;
-      }));
+      setComments(
+        comments.map((comment) => {
+          if (comment.id === parentCommentId) {
+            return {
+              ...comment,
+              replies: [...(comment.replies || []), newReply],
+            };
+          }
+          // Also check nested replies
+          if (comment.replies) {
+            return {
+              ...comment,
+              replies: comment.replies.map((replyItem) => {
+                if (replyItem.id === parentCommentId) {
+                  return {
+                    ...replyItem,
+                    replies: [...(replyItem.replies || []), newReply],
+                  };
+                }
+                return replyItem;
+              }),
+            };
+          }
+          return comment;
+        })
+      );
     } catch (error) {
       console.error("Error adding reply:", error);
     }
   };
 
   const deleteComment = async (commentId: string) => {
-    const comment = comments.find((c) => c.id === commentId) || 
-                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
-    
+    const comment =
+      comments.find((c) => c.id === commentId) ||
+      comments.flatMap((c) => c.replies || []).find((r) => r.id === commentId);
+
     if (!comment) {
       console.error("Comment not found");
       return;
@@ -505,9 +534,10 @@ export default function SubTaskDetailPage() {
   };
 
   const editComment = async (commentId: string, content: string) => {
-    const comment = comments.find((c) => c.id === commentId) || 
-                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
-    
+    const comment =
+      comments.find((c) => c.id === commentId) ||
+      comments.flatMap((c) => c.replies || []).find((r) => r.id === commentId);
+
     if (!comment) {
       console.error("Comment not found");
       return;
@@ -886,12 +916,12 @@ export default function SubTaskDetailPage() {
               </h3>
               {editing ? (
                 <AssigneeSelector
-                  selectedIds={formData.assignee_ids}
+                  selectedUserIds={formData.assignee_ids}
                   onSelectionChange={(ids) =>
                     setFormData({ ...formData, assignee_ids: ids })
                   }
                   users={projectMembers}
-                  maxSelections={5}
+                  maxAssignees={5}
                 />
               ) : (
                 <div className="space-y-2">
