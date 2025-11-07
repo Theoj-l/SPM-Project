@@ -22,7 +22,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
       headers,
       cache: "no-store",
     });
-  } catch (error) {
+  } catch (error: unknown) {
     // Handle network errors (server not running, CORS, etc.)
     console.error(`Network error fetching ${API_BASE}${path}:`, error);
     throw new Error(
@@ -362,7 +362,7 @@ export type Notification = {
   read: boolean;
   created_at: string;
   link_url?: string | null;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 };
 
 export const NotificationsAPI = {

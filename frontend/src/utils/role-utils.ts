@@ -153,17 +153,19 @@ export const canAdminManage = (user: UserWithRoles | null): boolean => {
 
 // Make functions available globally for console debugging
 if (typeof window !== 'undefined') {
-  (window as any).ROLES = ROLES;
-  (window as any).ROLE_NAMES = ROLE_NAMES;
-  (window as any).hasRole = hasRole;
-  (window as any).hasAnyRole = hasAnyRole;
-  (window as any).hasAllRoles = hasAllRoles;
-  (window as any).hasMinimumRole = hasMinimumRole;
-  (window as any).isStaff = isStaff;
-  (window as any).isManager = isManager;
-  (window as any).isAdmin = isAdmin;
-  (window as any).getRoleName = getRoleName;
-  (window as any).getUserRoleNames = getUserRoleNames;
-  (window as any).getHighestRoleName = getHighestRoleName;
-  (window as any).canAccessFeature = canAccessFeature;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const win = window as any;
+  win.ROLES = ROLES;
+  win.ROLE_NAMES = ROLE_NAMES;
+  win.hasRole = hasRole;
+  win.hasAnyRole = hasAnyRole;
+  win.hasAllRoles = hasAllRoles;
+  win.hasMinimumRole = hasMinimumRole;
+  win.isStaff = isStaff;
+  win.isManager = isManager;
+  win.isAdmin = isAdmin;
+  win.getRoleName = getRoleName;
+  win.getUserRoleNames = getUserRoleNames;
+  win.getHighestRoleName = getHighestRoleName;
+  win.canAccessFeature = canAccessFeature;
 }

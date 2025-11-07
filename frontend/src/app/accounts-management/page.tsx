@@ -38,7 +38,7 @@ export default function AccountsManagementPage() {
       setLoading(true);
       const response = await AuthAPI.listLockedAccounts();
       setLockedAccounts(response.data?.accounts || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError("Failed to load locked accounts");
       console.error("Error loading locked accounts:", err);
     } finally {
@@ -53,9 +53,9 @@ export default function AccountsManagementPage() {
       await AuthAPI.unlockAccount(email);
       toast.success(`Account ${email} has been unlocked successfully`);
       await loadLockedAccounts(); // Reload to update the list
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(
-        `Failed to unlock account: ${err.message || "Unknown error"}`
+        `Failed to unlock account: ${err instanceof Error ? err.message : "Unknown error"}`
       );
     } finally {
       setUnlockingEmail(null);
@@ -73,6 +73,12 @@ export default function AccountsManagementPage() {
     return new Date(lockedUntil) < new Date();
   };
 
+  useEffect(() => {
+    if (isAdmin(user)) {
+      loadLockedAccounts();
+    }
+  }, [user]);
+
   // Check if user is admin
   if (!isAdmin(user)) {
     return (
@@ -83,16 +89,12 @@ export default function AccountsManagementPage() {
             Access Denied
           </h3>
           <p className="text-gray-500">
-            You don't have permission to access this page. Admin role required.
+            You don&apos;t have permission to access this page. Admin role required.
           </p>
         </div>
       </div>
     );
   }
-
-  useEffect(() => {
-    loadLockedAccounts();
-  }, []);
 
   if (loading) {
     return <LockedAccountsSkeleton />;

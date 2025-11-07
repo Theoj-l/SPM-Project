@@ -111,7 +111,7 @@ export default function CreateSubTaskModal({
     try {
       await onSubmit(formData);
       handleClose();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error creating sub-task:", error);
     }
   };

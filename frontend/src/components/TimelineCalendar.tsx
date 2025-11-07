@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { X, Filter, RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 interface TimelineCalendarProps {
   onTaskClick?: (task: Task | SubTask, isSubtask: boolean, projectId?: string, taskId?: string) => void;
@@ -40,6 +39,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
   // Load initial data
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload tasks when filters change
@@ -47,6 +47,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
     if (projects.length > 0) {
       loadTasks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId, selectedUserId, projects]);
 
   const loadData = async () => {
@@ -62,7 +63,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
         try {
           const usersData = await UsersAPI.list();
           setUsers(usersData);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error("Failed to load users:", err);
         }
 
@@ -74,19 +75,19 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
             try {
               const members = await TeamsAPI.getMembers(team.id);
               allTeamMembers.push(...members);
-            } catch (err) {
+            } catch (err: unknown) {
               console.error(`Failed to load members for team ${team.id}:`, err);
             }
           }
           setTeamMembers(allTeamMembers);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error("Failed to load team members:", err);
         }
       }
 
       // Load tasks after projects are loaded
       await loadTasks();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to load data:", err);
     } finally {
       setLoading(false);
@@ -117,11 +118,11 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
             try {
               const taskSubtasks = await SubTasksAPI.list(task.id);
               allSubtasks.push(...taskSubtasks);
-            } catch (err) {
+            } catch (err: unknown) {
               console.error(`Failed to load subtasks for task ${task.id}:`, err);
             }
           }
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(`Failed to load tasks for project ${project.id}:`, err);
         }
       }
@@ -141,7 +142,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
 
       setTasks(filteredTasks);
       setSubtasks(filteredSubtasks);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to load tasks:", err);
     }
   };
@@ -354,7 +355,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
   }, [users, teamMembers, tasks, user]);
 
   // Handle event click
-  const handleEventClick = (clickInfo: any) => {
+  const handleEventClick = (clickInfo: { event: { extendedProps: { task?: unknown; isSubtask?: boolean; projectId?: string; taskId?: string } } }) => {
     const { task, isSubtask, projectId, taskId } = clickInfo.event.extendedProps;
     if (onTaskClick && task) {
       onTaskClick(task, isSubtask, projectId, taskId);
@@ -507,7 +508,6 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
           slotDuration="01:00:00"
           slotLabelInterval="01:00:00"
           eventContent={(eventInfo) => {
-            const task = eventInfo.event.extendedProps.task;
             const projectName = eventInfo.event.extendedProps.projectName;
             const isSubtask = eventInfo.event.extendedProps.isSubtask;
             return (

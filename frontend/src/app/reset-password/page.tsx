@@ -70,7 +70,7 @@ export default function ResetPasswordPage() {
                 message = decodeURIComponent(
                   errorDescription.replace(/\+/g, " ")
                 );
-              } catch (e) {
+              } catch {
                 message = errorDescription.replace(/\+/g, " ");
               }
             } else if (errorCode === "otp_expired") {
@@ -197,7 +197,7 @@ export default function ResetPasswordPage() {
                 throw new Error(errorData.detail || "Verification failed");
               }
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
               console.error("Reset password - Verification error:", err);
               setErrorMessage(
                 "Failed to verify reset token. The link may have expired. Please request a new password reset."
@@ -222,7 +222,7 @@ export default function ResetPasswordPage() {
         // Don't set error immediately - give it time for Supabase redirect to complete
         // The timeouts will check again
         return;
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("❌ Error in checkHash:", error);
         setErrorMessage("Error processing reset link. Please try again.");
         setIsChecking(false);
@@ -356,7 +356,7 @@ export default function ResetPasswordPage() {
       } else {
         toast.error("Failed to reset password");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Password reset error:", err);
       toast.error("Failed to reset password");
     } finally {

@@ -20,7 +20,7 @@ export default function ProjectsPage() {
     try {
       const data = await ProjectsAPI.list();
       setProjects(data);
-    } catch (e: any) {
+    } catch {
       setError("Failed to fetch");
     } finally {
       setLoading(false);
@@ -42,8 +42,8 @@ export default function ProjectsPage() {
       setName("");
       setShowInput(false);
       await loadProjects();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create project");
     }
   };
 

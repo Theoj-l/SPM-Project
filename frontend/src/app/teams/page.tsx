@@ -98,7 +98,7 @@ export default function TeamsPage() {
         setTeams(teamsData);
         setShowAllTeams(false); // Set to false for non-admin users
       }
-    } catch (e: any) {
+    } catch {
       setError("Failed to load teams");
     } finally {
       setLoading(false);
@@ -110,7 +110,7 @@ export default function TeamsPage() {
     try {
       const usersData = await UsersAPI.list();
       setUsers(usersData);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Failed to load users:", e);
     }
   };
@@ -124,7 +124,7 @@ export default function TeamsPage() {
       setEditingMembers(false);
       setMembersToAdd([]);
       setMembersToRemove([]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Failed to load team members:", e);
     }
   };
@@ -140,7 +140,7 @@ export default function TeamsPage() {
     try {
       const projects = await ProjectsAPI.getUserProjects(userId, false);
       setMemberProjects((prev) => ({ ...prev, [userId]: projects }));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Failed to load member projects:", e);
       // Set empty array on error
       setMemberProjects((prev) => ({ ...prev, [userId]: [] }));
@@ -219,8 +219,8 @@ export default function TeamsPage() {
 
       // Reload team members
       await loadTeamMembers(selectedTeam!.id);
-    } catch (e: any) {
-      setError(e.message || "Failed to update team members");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update team members");
     }
   };
 
@@ -245,7 +245,7 @@ export default function TeamsPage() {
       for (const memberId of selectedMembers) {
         try {
           await TeamsAPI.addMember(newTeam.id, memberId, "member");
-        } catch (e) {
+        } catch (e: unknown) {
           console.error(`Failed to add member ${memberId}:`, e);
         }
       }
@@ -256,8 +256,8 @@ export default function TeamsPage() {
       setSelectedMembers([]);
       setShowCreateTeam(false);
       await loadTeams();
-    } catch (e: any) {
-      setError(e.message || "Failed to create team");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create team");
     }
   };
 
@@ -272,8 +272,8 @@ export default function TeamsPage() {
         try {
           await TeamsAPI.delete(teamId);
           await loadTeams();
-        } catch (e: any) {
-          setError(e.message || "Failed to delete team");
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : "Failed to delete team");
         }
       },
     });
@@ -291,8 +291,8 @@ export default function TeamsPage() {
       setSelectedUserId("");
       setMemberRole("member");
       await loadTeamMembers(teamId);
-    } catch (e: any) {
-      setError(e.message || "Failed to add member");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to add member");
     }
   };
 
@@ -317,8 +317,8 @@ export default function TeamsPage() {
         try {
           await TeamsAPI.removeMember(teamId, userId);
           await loadTeamMembers(teamId);
-        } catch (e: any) {
-          setError(e.message || "Failed to remove member");
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : "Failed to remove member");
         }
       },
     });

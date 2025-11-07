@@ -68,7 +68,7 @@ export default function ArchivedPage() {
             (task) => task.type === "archived"
           );
           allArchivedTasks.push(...projectArchivedTasks);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(
             `Failed to load tasks for project ${project.name}:`,
             err
@@ -77,7 +77,7 @@ export default function ArchivedPage() {
       }
 
       setArchivedTasks(allArchivedTasks);
-    } catch (err: any) {
+    } catch {
       setError("Failed to load archived data");
     } finally {
       setLoading(false);
@@ -90,7 +90,7 @@ export default function ArchivedPage() {
       setRestoringTask(taskId);
       await TasksAPI.restore(taskId);
       await loadArchivedData(); // Reload to update the list
-    } catch (err: any) {
+    } catch {
       setError("Failed to restore task");
     } finally {
       setRestoringTask(null);
@@ -103,7 +103,7 @@ export default function ArchivedPage() {
       setRestoringProject(projectId);
       await ProjectsAPI.restore(projectId);
       await loadArchivedData(); // Reload to update the list
-    } catch (err: any) {
+    } catch {
       setError("Failed to restore project");
     } finally {
       setRestoringProject(null);
@@ -386,7 +386,7 @@ export default function ArchivedPage() {
               No Archive Access
             </h3>
             <p className="text-gray-500">
-              You don't have permission to view archived projects or tasks.
+              You don&apos;t have permission to view archived projects or tasks.
             </p>
           </div>
         )}

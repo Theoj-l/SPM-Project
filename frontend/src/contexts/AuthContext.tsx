@@ -19,12 +19,6 @@ interface User {
   roles?: string[]; // Array of role names (staff, manager, admin)
 }
 
-interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-}
-
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -61,6 +55,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Check for existing authentication on mount
   useEffect(() => {
     checkAuthStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle user activity events
@@ -101,6 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
       stopInactivityTimer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Redirect logic based on authentication status
@@ -155,7 +151,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         );
         clearAuthData();
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Auth check failed:", error);
       clearAuthData();
     } finally {
@@ -211,7 +207,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       console.log(`Failed to fetch user roles: ${response.status}`);
       return false;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fetch user roles error:", error);
       return false;
     }
@@ -299,18 +295,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         toast.error("Login failed");
         return false;
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Login error:", error);
       // Handle network errors (failed to fetch)
       if (
-        error?.message?.includes("Failed to fetch") ||
-        error?.name === "TypeError"
+        (error instanceof Error && error.message?.includes("Failed to fetch")) ||
+        (error instanceof Error && error.name === "TypeError")
       ) {
         toast.error(
           "Cannot connect to server. Please ensure the backend is running."
         );
       } else {
-        toast.error(error?.message || "Login failed");
+        toast.error(error instanceof Error ? error.message : "Login failed");
       }
       return false;
     }
@@ -405,7 +401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Refresh failed, logout user
       clearAuthData();
       return false;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Token refresh failed:", error);
       clearAuthData();
       return false;

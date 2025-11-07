@@ -75,7 +75,7 @@ export default function ArchiveConfirmationDialog({
               <Archive className="h-4 w-4 text-orange-400 flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-sm font-medium text-orange-800">
-                  Are you sure you want to archive "{itemName}"?
+                  Are you sure you want to archive &quot;{itemName}&quot;?
                 </h3>
                 <p className="mt-1 text-xs text-orange-700">
                   This will archive the project and hide it from the main view.
