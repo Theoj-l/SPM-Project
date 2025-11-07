@@ -35,10 +35,10 @@ class SchedulerService:
             replace_existing=True
         )
         
-        # Send daily digests at 5 PM SGT (9 AM UTC)
+        # Send daily digests at 8 AM SGT (midnight UTC)
         self.scheduler.add_job(
             self.send_daily_digests,
-            trigger=CronTrigger(hour=9, minute=0),  # 5 PM SGT = 9 AM UTC
+            trigger=CronTrigger(hour=0, minute=0),  # 8 AM SGT = midnight UTC (SGT is UTC+8)
             id="daily_digests",
             replace_existing=True
         )
