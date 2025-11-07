@@ -19,12 +19,6 @@ interface User {
   roles?: string[]; // Array of role names (staff, manager, admin)
 }
 
-interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-}
-
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -61,6 +55,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Check for existing authentication on mount
   useEffect(() => {
     checkAuthStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle user activity events
@@ -101,6 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
       stopInactivityTimer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Redirect logic based on authentication status

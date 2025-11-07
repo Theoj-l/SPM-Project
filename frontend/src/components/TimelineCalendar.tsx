@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { X, Filter, RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 interface TimelineCalendarProps {
   onTaskClick?: (task: Task | SubTask, isSubtask: boolean, projectId?: string, taskId?: string) => void;
@@ -40,6 +39,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
   // Load initial data
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload tasks when filters change
@@ -47,6 +47,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
     if (projects.length > 0) {
       loadTasks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId, selectedUserId, projects]);
 
   const loadData = async () => {
@@ -507,7 +508,6 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
           slotDuration="01:00:00"
           slotLabelInterval="01:00:00"
           eventContent={(eventInfo) => {
-            const task = eventInfo.event.extendedProps.task;
             const projectName = eventInfo.event.extendedProps.projectName;
             const isSubtask = eventInfo.event.extendedProps.isSubtask;
             return (
