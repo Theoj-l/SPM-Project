@@ -89,7 +89,7 @@ const formatSingaporeTime = (dateString: string): string => {
       minute: "2-digit",
       hour12: false, // Use 24-hour format
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error formatting date:", error, dateString);
     return dateString;
   }
@@ -383,7 +383,7 @@ export default function SubTaskDetailPage() {
       try {
         const projectData = await ProjectsAPI.getById(projectId as string);
         setProject(projectData);
-      } catch (error) {
+      } catch (error: unknown) {
         console.warn("Could not load project data:", error);
         // Project data is optional for sub-task page
       }
@@ -401,7 +401,7 @@ export default function SubTaskDetailPage() {
 
       // Load comments and files
       await Promise.all([loadComments(), loadFiles()]);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error loading data:", error);
     } finally {
       setLoading(false);
@@ -412,7 +412,7 @@ export default function SubTaskDetailPage() {
     try {
       const commentsData = await CommentsAPI.list(subtaskId as string);
       setComments(commentsData);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error loading comments:", error);
     }
   };
@@ -421,7 +421,7 @@ export default function SubTaskDetailPage() {
     try {
       const filesData = await FilesAPI.listForSubtask(subtaskId as string);
       setFiles(filesData);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error loading files:", error);
     }
   };
@@ -480,7 +480,7 @@ export default function SubTaskDetailPage() {
       };
       setComments([...comments, newCommentWithReplies]);
       setNewComment("");
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error adding comment:", error);
     } finally {
       setAddingComment(false);
@@ -530,7 +530,7 @@ export default function SubTaskDetailPage() {
           return comment;
         })
       );
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error adding reply:", error);
     }
   };
@@ -554,7 +554,7 @@ export default function SubTaskDetailPage() {
     try {
       await CommentsAPI.delete(commentId);
       await loadComments();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deleting comment:", error);
     }
   };
@@ -577,7 +577,7 @@ export default function SubTaskDetailPage() {
     try {
       await CommentsAPI.update(commentId, content);
       await loadComments();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error updating comment:", error);
     }
   };
@@ -590,7 +590,7 @@ export default function SubTaskDetailPage() {
       await FilesAPI.uploadForSubtask(subtaskId as string, selectedFile);
       setSelectedFile(null);
       await loadFiles();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error uploading file:", error);
     } finally {
       setUploadingFile(false);
@@ -609,7 +609,7 @@ export default function SubTaskDetailPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error downloading file:", error);
     }
   };
@@ -627,7 +627,7 @@ export default function SubTaskDetailPage() {
       const updatedFiles = await FilesAPI.listForSubtask(subtaskId as string);
       setFiles(updatedFiles);
       setDeleteConfirmDialog({ isOpen: false, file: null });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deleting file:", error);
       setDeleteConfirmDialog({ isOpen: false, file: null });
       setErrorDialog({

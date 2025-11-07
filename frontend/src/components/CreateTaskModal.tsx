@@ -173,7 +173,7 @@ export default function CreateTaskModal({
       setDueDate(undefined);
       setRecurringEndDate(undefined);
       setErrors({});
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to create task:", error);
     }
   };

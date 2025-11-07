@@ -49,7 +49,7 @@ export default function NotificationsPage() {
     try {
       const result = await NotificationsAPI.getUnreadCount();
       setUnreadCount(result.count);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to load unread count:", err);
     }
   }, []);
@@ -57,6 +57,7 @@ export default function NotificationsPage() {
   useEffect(() => {
     loadNotifications(true);
     loadUnreadCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeRead]);
 
   // Poll for unread count every 30 seconds
@@ -72,7 +73,7 @@ export default function NotificationsPage() {
         prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
       );
       loadUnreadCount();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to mark notification as read:", err);
     }
   };
@@ -82,7 +83,7 @@ export default function NotificationsPage() {
       await NotificationsAPI.markAllAsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       loadUnreadCount();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to mark all as read:", err);
     }
   };

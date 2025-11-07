@@ -245,7 +245,7 @@ export default function TeamsPage() {
       for (const memberId of selectedMembers) {
         try {
           await TeamsAPI.addMember(newTeam.id, memberId, "member");
-        } catch (e) {
+        } catch (e: unknown) {
           console.error(`Failed to add member ${memberId}:`, e);
         }
       }

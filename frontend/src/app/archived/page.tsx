@@ -68,7 +68,7 @@ export default function ArchivedPage() {
             (task) => task.type === "archived"
           );
           allArchivedTasks.push(...projectArchivedTasks);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(
             `Failed to load tasks for project ${project.name}:`,
             err

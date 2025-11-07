@@ -88,7 +88,7 @@ const formatSingaporeTime = (dateString: string): string => {
       minute: "2-digit",
       hour12: false, // Use 24-hour format
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error formatting date:", error, dateString);
     return dateString;
   }
@@ -558,7 +558,7 @@ export default function TaskDetailPage() {
       let foundProject;
       try {
         foundProject = await ProjectsAPI.getById(projectId);
-      } catch (err) {
+      } catch (err: unknown) {
         // If direct access fails, try loading from user's projects
         console.log("Direct project access failed, trying user projects");
         const projects = await ProjectsAPI.list();
@@ -579,15 +579,15 @@ export default function TaskDetailPage() {
       ] = await Promise.all([
         TasksAPI.getById(taskId),
         ProjectsAPI.getMembers(projectId), // Get project members directly
-        CommentsAPI.list(taskId).catch((err) => {
+        CommentsAPI.list(taskId).catch((err: unknown) => {
           console.error("Error loading comments:", err);
           return [];
         }),
-        SubTasksAPI.list(taskId).catch((err) => {
+        SubTasksAPI.list(taskId).catch((err: unknown) => {
           console.error("Error loading subtasks:", err);
           return [];
         }),
-        FilesAPI.list(taskId).catch((err) => {
+        FilesAPI.list(taskId).catch((err: unknown) => {
           console.error("Error loading files:", err);
           return [];
         }),
@@ -996,7 +996,7 @@ export default function TaskDetailPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error downloading file:", error);
       setError("Failed to download file");
     }
@@ -1016,7 +1016,7 @@ export default function TaskDetailPage() {
       const updatedFiles = await FilesAPI.list(taskId);
       setFiles(updatedFiles);
       setDeleteConfirmDialog({ isOpen: false, file: null });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deleting file:", error);
       setDeleteConfirmDialog({ isOpen: false, file: null });
       setErrorDialog({

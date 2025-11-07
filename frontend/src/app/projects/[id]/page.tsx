@@ -100,7 +100,7 @@ export default function ProjectDetailPage() {
         const projectData = await ProjectsAPI.getById(projectId);
         setProject(projectData);
         return;
-      } catch (err) {
+      } catch (err: unknown) {
         // If direct access fails, try loading from user's projects
         console.log("Direct project access failed, trying user projects");
       }

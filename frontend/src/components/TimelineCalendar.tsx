@@ -63,7 +63,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
         try {
           const usersData = await UsersAPI.list();
           setUsers(usersData);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error("Failed to load users:", err);
         }
 
@@ -75,19 +75,19 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
             try {
               const members = await TeamsAPI.getMembers(team.id);
               allTeamMembers.push(...members);
-            } catch (err) {
+            } catch (err: unknown) {
               console.error(`Failed to load members for team ${team.id}:`, err);
             }
           }
           setTeamMembers(allTeamMembers);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error("Failed to load team members:", err);
         }
       }
 
       // Load tasks after projects are loaded
       await loadTasks();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to load data:", err);
     } finally {
       setLoading(false);
@@ -118,11 +118,11 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
             try {
               const taskSubtasks = await SubTasksAPI.list(task.id);
               allSubtasks.push(...taskSubtasks);
-            } catch (err) {
+            } catch (err: unknown) {
               console.error(`Failed to load subtasks for task ${task.id}:`, err);
             }
           }
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(`Failed to load tasks for project ${project.id}:`, err);
         }
       }
@@ -142,7 +142,7 @@ export default function TimelineCalendar({ onTaskClick }: TimelineCalendarProps)
 
       setTasks(filteredTasks);
       setSubtasks(filteredSubtasks);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to load tasks:", err);
     }
   };

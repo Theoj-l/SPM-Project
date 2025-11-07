@@ -150,7 +150,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         );
         clearAuthData();
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Auth check failed:", error);
       clearAuthData();
     } finally {
@@ -206,7 +206,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       console.log(`Failed to fetch user roles: ${response.status}`);
       return false;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Fetch user roles error:", error);
       return false;
     }
@@ -400,7 +400,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Refresh failed, logout user
       clearAuthData();
       return false;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Token refresh failed:", error);
       clearAuthData();
       return false;
