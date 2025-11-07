@@ -16,7 +16,12 @@ import {
   SubTask,
   TaskFile,
 } from "@/lib/api";
-import { isAdmin, isManager, canAdminManage } from "@/utils/role-utils";
+import {
+  isAdmin,
+  isManager,
+  canAdminManage,
+  isStaff,
+} from "@/utils/role-utils";
 import CreateSubTaskModal from "@/components/CreateSubTaskModal";
 import {
   ArrowLeft,
@@ -60,24 +65,29 @@ const formatSingaporeTime = (dateString: string): string => {
   try {
     // Normalize timestamp: ensure it has timezone info
     let normalizedDateString = dateString;
-    
+
     // If timestamp doesn't have timezone info, assume it's UTC and append 'Z'
-    if (dateString && !dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-', 10)) {
+    if (
+      dateString &&
+      !dateString.endsWith("Z") &&
+      !dateString.includes("+") &&
+      !dateString.includes("-", 10)
+    ) {
       // Check if it's a valid ISO format without timezone (e.g., "2023-10-27T12:57:00")
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(dateString)) {
-        normalizedDateString = dateString + 'Z';
+        normalizedDateString = dateString + "Z";
       }
     }
-    
+
     // Parse the date - JavaScript's Date will interpret 'Z' as UTC
     const date = new Date(normalizedDateString);
-    
+
     // Check if date is valid
     if (isNaN(date.getTime())) {
       console.warn("Invalid date string:", dateString);
       return dateString; // Return original if invalid
     }
-    
+
     // Format in Singapore timezone
     return date.toLocaleString("en-SG", {
       timeZone: "Asia/Singapore",
@@ -117,8 +127,27 @@ function CommentItem({
   onReply: (parentId: string, replyText: string) => void;
   onDelete: (commentId: string) => void;
   onEdit: (commentId: string, content: string) => void;
+<<<<<<< Updated upstream
   isAdmin: (user: any) => boolean;
   isManager: (user: any) => boolean;
+=======
+  isAdmin: (
+    user: {
+      id: string;
+      email: string;
+      full_name?: string;
+      roles?: string[];
+    } | null
+  ) => boolean;
+  isManager: (
+    user: {
+      id: string;
+      email: string;
+      full_name?: string;
+      roles?: string[];
+    } | null
+  ) => boolean;
+>>>>>>> Stashed changes
   projectMembers: User[];
   insertMention: (member: User, targetTextarea?: HTMLTextAreaElement) => void;
   mentionSuggestions: User[];
@@ -138,33 +167,36 @@ function CommentItem({
   const isCreator = user?.id === comment.user_id;
   const canDelete = isCreator || isAdmin(user);
   const canEdit = isCreator;
-  
+
   // Filter mentionable users for replies
-  const replyMentionSuggestions = projectMembers.filter((member) => {
-    if (!replyMentionQuery) return true;
-    const query = replyMentionQuery.toLowerCase();
-    const displayName = (member.display_name || "").toLowerCase();
-    const email = (member.email || "").toLowerCase();
-    return displayName.includes(query) || email.includes(query);
-  }).slice(0, 5);
-  
+  const replyMentionSuggestions = projectMembers
+    .filter((member) => {
+      if (!replyMentionQuery) return true;
+      const query = replyMentionQuery.toLowerCase();
+      const displayName = (member.display_name || "").toLowerCase();
+      const email = (member.email || "").toLowerCase();
+      return displayName.includes(query) || email.includes(query);
+    })
+    .slice(0, 5);
+
   // Insert mention into reply
   const insertReplyMention = (member: User, textarea: HTMLTextAreaElement) => {
     const cursorPos = textarea.selectionStart;
     const textBeforeCursor = replyText.substring(0, cursorPos);
     const lastAtIndex = textBeforeCursor.lastIndexOf("@");
-    
+
     if (lastAtIndex !== -1) {
-      const mentionName = member.display_name || member.email?.split("@")[0] || "Unknown";
-      const newText = 
-        replyText.substring(0, lastAtIndex) + 
-        `@${mentionName} ` + 
+      const mentionName =
+        member.display_name || member.email?.split("@")[0] || "Unknown";
+      const newText =
+        replyText.substring(0, lastAtIndex) +
+        `@${mentionName} ` +
         replyText.substring(cursorPos);
       setReplyText(newText);
       setShowReplyMentions(false);
       setReplyMentionQuery("");
       setSelectedReplyMentionIndex(0);
-      
+
       setTimeout(() => {
         const newCursorPos = lastAtIndex + mentionName.length + 2;
         textarea.setSelectionRange(newCursorPos, newCursorPos);
@@ -235,7 +267,9 @@ function CommentItem({
                 <button
                   onClick={() => onDelete(comment.id)}
                   className="text-red-500 hover:text-red-700 text-xs"
-                  title={isCreator ? "Delete your comment" : "Delete comment (Admin)"}
+                  title={
+                    isCreator ? "Delete your comment" : "Delete comment (Admin)"
+                  }
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -269,16 +303,21 @@ function CommentItem({
             </div>
           ) : (
             <p className="text-sm text-gray-700 whitespace-pre-wrap mb-2">
-              {comment.content.split(/(@[\w\s]+?)(?=\s|$|[.,!?;:])/).map((part, index) => {
-                if (part.startsWith("@")) {
-                  return (
-                    <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded font-medium">
-                      {part}
-                    </span>
-                  );
-                }
-                return <span key={index}>{part}</span>;
-              })}
+              {comment.content
+                .split(/(@[\w\s]+?)(?=\s|$|[.,!?;:])/)
+                .map((part, index) => {
+                  if (part.startsWith("@")) {
+                    return (
+                      <span
+                        key={index}
+                        className="bg-blue-100 text-blue-700 px-1 rounded font-medium"
+                      >
+                        {part}
+                      </span>
+                    );
+                  }
+                  return <span key={index}>{part}</span>;
+                })}
             </p>
           )}
           {!isEditing && (
@@ -309,9 +348,11 @@ function CommentItem({
                       const cursorPos = e.target.selectionStart;
                       const textBeforeCursor = text.substring(0, cursorPos);
                       const lastAtIndex = textBeforeCursor.lastIndexOf("@");
-                      
+
                       if (lastAtIndex !== -1) {
-                        const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                        const textAfterAt = textBeforeCursor.substring(
+                          lastAtIndex + 1
+                        );
                         if (/^\w*$/.test(textAfterAt)) {
                           setShowReplyMentions(true);
                           setReplyMentionQuery(textAfterAt);
@@ -323,18 +364,31 @@ function CommentItem({
                       }
                     }}
                     onKeyDown={(e) => {
-                      if (showReplyMentions && replyMentionSuggestions.length > 0) {
+                      if (
+                        showReplyMentions &&
+                        replyMentionSuggestions.length > 0
+                      ) {
                         if (e.key === "ArrowDown") {
                           e.preventDefault();
-                          setSelectedReplyMentionIndex((prev) => 
-                            prev < replyMentionSuggestions.length - 1 ? prev + 1 : prev
+                          setSelectedReplyMentionIndex((prev) =>
+                            prev < replyMentionSuggestions.length - 1
+                              ? prev + 1
+                              : prev
                           );
                         } else if (e.key === "ArrowUp") {
                           e.preventDefault();
-                          setSelectedReplyMentionIndex((prev) => (prev > 0 ? prev - 1 : 0));
-                        } else if (e.key === "Enter" && selectedReplyMentionIndex >= 0) {
+                          setSelectedReplyMentionIndex((prev) =>
+                            prev > 0 ? prev - 1 : 0
+                          );
+                        } else if (
+                          e.key === "Enter" &&
+                          selectedReplyMentionIndex >= 0
+                        ) {
                           e.preventDefault();
-                          insertReplyMention(replyMentionSuggestions[selectedReplyMentionIndex], e.currentTarget);
+                          insertReplyMention(
+                            replyMentionSuggestions[selectedReplyMentionIndex],
+                            e.currentTarget
+                          );
                         } else if (e.key === "Escape") {
                           setShowReplyMentions(false);
                         }
@@ -352,24 +406,34 @@ function CommentItem({
                           key={member.id}
                           type="button"
                           onClick={() => {
-                            const textarea = document.querySelector('textarea[placeholder*="Write a reply"]') as HTMLTextAreaElement;
+                            const textarea = document.querySelector(
+                              'textarea[placeholder*="Write a reply"]'
+                            ) as HTMLTextAreaElement;
                             if (textarea) {
                               insertReplyMention(member, textarea);
                             }
                           }}
                           className={`w-full px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2 text-sm ${
-                            index === selectedReplyMentionIndex ? "bg-blue-50" : ""
+                            index === selectedReplyMentionIndex
+                              ? "bg-blue-50"
+                              : ""
                           }`}
                         >
                           <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
-                            {(member.display_name || member.email || "U").charAt(0).toUpperCase()}
+                            {(member.display_name || member.email || "U")
+                              .charAt(0)
+                              .toUpperCase()}
                           </div>
                           <div>
                             <div className="font-medium">
-                              {member.display_name || member.email?.split("@")[0] || "Unknown"}
+                              {member.display_name ||
+                                member.email?.split("@")[0] ||
+                                "Unknown"}
                             </div>
                             {member.email && (
-                              <div className="text-xs text-gray-500">{member.email}</div>
+                              <div className="text-xs text-gray-500">
+                                {member.email}
+                              </div>
                             )}
                           </div>
                         </button>
@@ -467,45 +531,57 @@ export default function TaskDetailPage() {
     isOpen: false,
     message: "",
   });
-  
+
   // Mention state
   const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-  
+
   // Filter mentionable users based on query
-  const mentionSuggestions = projectMembers.filter((member) => {
-    if (!mentionQuery) return true;
-    const query = mentionQuery.toLowerCase();
-    const displayName = (member.display_name || "").toLowerCase();
-    const email = (member.email || "").toLowerCase();
-    return displayName.includes(query) || email.includes(query);
-  }).slice(0, 5); // Limit to 5 suggestions
-  
+  const mentionSuggestions = projectMembers
+    .filter((member) => {
+      if (!mentionQuery) return true;
+      const query = mentionQuery.toLowerCase();
+      const displayName = (member.display_name || "").toLowerCase();
+      const email = (member.email || "").toLowerCase();
+      return displayName.includes(query) || email.includes(query);
+    })
+    .slice(0, 5); // Limit to 5 suggestions
+
   // Insert mention into comment (works for both main comment and replies)
-  const insertMention = (member: User, targetTextarea?: HTMLTextAreaElement) => {
-    const textarea = targetTextarea || (document.querySelector('textarea[placeholder*="mention"]') as HTMLTextAreaElement);
+  const insertMention = (
+    member: User,
+    targetTextarea?: HTMLTextAreaElement
+  ) => {
+    const textarea =
+      targetTextarea ||
+      (document.querySelector(
+        'textarea[placeholder*="mention"]'
+      ) as HTMLTextAreaElement);
     if (!textarea) return;
-    
-    const isReply = textarea !== document.querySelector('textarea[placeholder*="Add a comment"]');
+
+    const isReply =
+      textarea !==
+      document.querySelector('textarea[placeholder*="Add a comment"]');
     const currentText = isReply ? replyText : newComment;
     const setText = isReply ? setReplyText : setNewComment;
-    
+
     const cursorPos = textarea.selectionStart;
     const textBeforeCursor = currentText.substring(0, cursorPos);
     const lastAtIndex = textBeforeCursor.lastIndexOf("@");
-    
+
     if (lastAtIndex !== -1) {
-      const mentionName = member.display_name || member.email?.split("@")[0] || "Unknown";
-      const newText = 
-        currentText.substring(0, lastAtIndex) + 
-        `@${mentionName} ` + 
+      const mentionName =
+        member.display_name || member.email?.split("@")[0] || "Unknown";
+      const newText =
+        currentText.substring(0, lastAtIndex) +
+        `@${mentionName} ` +
         currentText.substring(cursorPos);
       setText(newText);
       setShowMentionSuggestions(false);
       setMentionQuery("");
       setSelectedMentionIndex(0);
-      
+
       // Set cursor position after the mention
       setTimeout(() => {
         const newCursorPos = lastAtIndex + mentionName.length + 2; // +2 for @ and space
@@ -612,10 +688,10 @@ export default function TaskDetailPage() {
         if (taskData.due_date) {
           const date = new Date(taskData.due_date);
           const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const hours = String(date.getHours()).padStart(2, '0');
-          const minutes = String(date.getMinutes()).padStart(2, '0');
+          const month = String(date.getMonth() + 1).padStart(2, "0");
+          const day = String(date.getDate()).padStart(2, "0");
+          const hours = String(date.getHours()).padStart(2, "0");
+          const minutes = String(date.getMinutes()).padStart(2, "0");
           formattedDueDate = `${year}-${month}-${day}T${hours}:${minutes}`;
         }
         // Initialize edit form with current task data
@@ -709,6 +785,9 @@ export default function TaskDetailPage() {
     // Project owners can archive
     if (project?.owner_id === user.id) return true;
 
+    // Staff can archive tasks they are assigned to
+    if (isStaff(user) && task.assignee_ids?.includes(user.id)) return true;
+
     return false;
   };
 
@@ -731,10 +810,10 @@ export default function TaskDetailPage() {
       if (editForm.due_date) {
         const date = new Date(editForm.due_date);
         const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
         formattedDueDate = `${year}-${month}-${day} ${hours}:${minutes}:00`;
       }
 
@@ -767,10 +846,10 @@ export default function TaskDetailPage() {
       if (task.due_date) {
         const date = new Date(task.due_date);
         const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
         formattedDueDate = `${year}-${month}-${day}T${hours}:${minutes}`;
       }
       setEditForm({
@@ -828,7 +907,7 @@ export default function TaskDetailPage() {
         replyText.trim(),
         parentCommentId
       );
-      
+
       // Ensure reply has proper structure
       const newReply: Comment = {
         ...reply,
@@ -836,8 +915,9 @@ export default function TaskDetailPage() {
         user_display_name: reply.user_display_name || user?.display_name,
         user_email: reply.user_email || user?.email,
       };
-      
+
       // Immediately add reply to parent comment's replies array
+<<<<<<< Updated upstream
       setComments(comments.map(comment => {
         if (comment.id === parentCommentId) {
           return {
@@ -863,6 +943,35 @@ export default function TaskDetailPage() {
         return comment;
       }));
     } catch (err: any) {
+=======
+      setComments(
+        comments.map((comment) => {
+          if (comment.id === parentCommentId) {
+            return {
+              ...comment,
+              replies: [...(comment.replies || []), newReply],
+            };
+          }
+          // Also check nested replies
+          if (comment.replies) {
+            return {
+              ...comment,
+              replies: comment.replies.map((replyItem) => {
+                if (replyItem.id === parentCommentId) {
+                  return {
+                    ...replyItem,
+                    replies: [...(replyItem.replies || []), newReply],
+                  };
+                }
+                return replyItem;
+              }),
+            };
+          }
+          return comment;
+        })
+      );
+    } catch (err: unknown) {
+>>>>>>> Stashed changes
       console.error("Error adding reply:", err);
       setError("Failed to add reply");
     }
@@ -870,9 +979,10 @@ export default function TaskDetailPage() {
 
   // Delete comment (creator or admin only)
   const deleteComment = async (commentId: string) => {
-    const comment = comments.find((c) => c.id === commentId) || 
-                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
-    
+    const comment =
+      comments.find((c) => c.id === commentId) ||
+      comments.flatMap((c) => c.replies || []).find((r) => r.id === commentId);
+
     if (!comment) {
       setError("Comment not found");
       return;
@@ -903,9 +1013,10 @@ export default function TaskDetailPage() {
 
   // Edit comment (creator only)
   const editComment = async (commentId: string, content: string) => {
-    const comment = comments.find((c) => c.id === commentId) || 
-                    comments.flatMap(c => c.replies || []).find((r) => r.id === commentId);
-    
+    const comment =
+      comments.find((c) => c.id === commentId) ||
+      comments.flatMap((c) => c.replies || []).find((r) => r.id === commentId);
+
     if (!comment) {
       setError("Comment not found");
       return;
@@ -1009,7 +1120,7 @@ export default function TaskDetailPage() {
 
   const handleDeleteConfirm = async () => {
     if (!deleteConfirmDialog.file) return;
-    
+
     try {
       await FilesAPI.delete(deleteConfirmDialog.file.id);
       // Refresh files list
@@ -1021,7 +1132,8 @@ export default function TaskDetailPage() {
       setDeleteConfirmDialog({ isOpen: false, file: null });
       setErrorDialog({
         isOpen: true,
-        message: "Failed to delete file. You may only delete files you uploaded.",
+        message:
+          "Failed to delete file. You may only delete files you uploaded.",
       });
     }
   };
@@ -1134,7 +1246,9 @@ export default function TaskDetailPage() {
                 setConfirmDialog({
                   isOpen: true,
                   title: "Archive Task",
-                  description: `Are you sure you want to archive "${task?.title || "this task"}"?`,
+                  description: `Are you sure you want to archive "${
+                    task?.title || "this task"
+                  }"?`,
                   variant: "default",
                   onConfirm: () => archiveTask(),
                 });
@@ -1201,9 +1315,11 @@ export default function TaskDetailPage() {
                         const cursorPos = e.target.selectionStart;
                         const textBeforeCursor = text.substring(0, cursorPos);
                         const lastAtIndex = textBeforeCursor.lastIndexOf("@");
-                        
+
                         if (lastAtIndex !== -1) {
-                          const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                          const textAfterAt = textBeforeCursor.substring(
+                            lastAtIndex + 1
+                          );
                           // If @ is followed by word characters, show mention suggestions
                           if (/^\w*$/.test(textAfterAt)) {
                             setShowMentionSuggestions(true);
@@ -1216,18 +1332,30 @@ export default function TaskDetailPage() {
                         }
                       }}
                       onKeyDown={(e) => {
-                        if (showMentionSuggestions && mentionSuggestions.length > 0) {
+                        if (
+                          showMentionSuggestions &&
+                          mentionSuggestions.length > 0
+                        ) {
                           if (e.key === "ArrowDown") {
                             e.preventDefault();
-                            setSelectedMentionIndex((prev) => 
-                              prev < mentionSuggestions.length - 1 ? prev + 1 : prev
+                            setSelectedMentionIndex((prev) =>
+                              prev < mentionSuggestions.length - 1
+                                ? prev + 1
+                                : prev
                             );
                           } else if (e.key === "ArrowUp") {
                             e.preventDefault();
-                            setSelectedMentionIndex((prev) => (prev > 0 ? prev - 1 : 0));
-                          } else if (e.key === "Enter" && selectedMentionIndex >= 0) {
+                            setSelectedMentionIndex((prev) =>
+                              prev > 0 ? prev - 1 : 0
+                            );
+                          } else if (
+                            e.key === "Enter" &&
+                            selectedMentionIndex >= 0
+                          ) {
                             e.preventDefault();
-                            insertMention(mentionSuggestions[selectedMentionIndex]);
+                            insertMention(
+                              mentionSuggestions[selectedMentionIndex]
+                            );
                           } else if (e.key === "Escape") {
                             setShowMentionSuggestions(false);
                           }
@@ -1238,35 +1366,49 @@ export default function TaskDetailPage() {
                       rows={3}
                     />
                     {/* Mention Suggestions */}
-                    {showMentionSuggestions && mentionSuggestions.length > 0 && (
-                      <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
-                        {mentionSuggestions.map((member, index) => (
-                          <button
-                            key={member.id}
-                            type="button"
-                            onClick={() => insertMention(member)}
-                            className={`w-full px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2 text-sm ${
-                              index === selectedMentionIndex ? "bg-blue-50" : ""
-                            }`}
-                          >
-                            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
-                              {(member.display_name || member.email || "U").charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="font-medium">
-                                {member.display_name || member.email?.split("@")[0] || "Unknown"}
+                    {showMentionSuggestions &&
+                      mentionSuggestions.length > 0 && (
+                        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+                          {mentionSuggestions.map((member, index) => (
+                            <button
+                              key={member.id}
+                              type="button"
+                              onClick={() => insertMention(member)}
+                              className={`w-full px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2 text-sm ${
+                                index === selectedMentionIndex
+                                  ? "bg-blue-50"
+                                  : ""
+                              }`}
+                            >
+                              <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                {(member.display_name || member.email || "U")
+                                  .charAt(0)
+                                  .toUpperCase()}
                               </div>
-                              {member.email && (
-                                <div className="text-xs text-gray-500">{member.email}</div>
-                              )}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                              <div>
+                                <div className="font-medium">
+                                  {member.display_name ||
+                                    member.email?.split("@")[0] ||
+                                    "Unknown"}
+                                </div>
+                                {member.email && (
+                                  <div className="text-xs text-gray-500">
+                                    {member.email}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     <div className="flex items-center justify-between mt-2">
                       <p className="text-xs text-gray-500">
+<<<<<<< Updated upstream
                         Type @ to mention someone. They'll receive an email notification.
+=======
+                        Type @ to mention someone. They&apos;ll receive an email
+                        notification.
+>>>>>>> Stashed changes
                       </p>
                       <button
                         onClick={addComment}
@@ -1335,7 +1477,10 @@ export default function TaskDetailPage() {
                     <div className="flex items-center gap-2 mt-1">
                       <div className="flex items-center gap-1 text-xs text-gray-500">
                         <span className="font-medium text-gray-700">
-                          {subtasks.filter((st) => st.status === "completed").length}
+                          {
+                            subtasks.filter((st) => st.status === "completed")
+                              .length
+                          }
                         </span>
                         <span>of</span>
                         <span className="font-medium text-gray-700">
@@ -1348,8 +1493,9 @@ export default function TaskDetailPage() {
                           className="h-full bg-green-500 transition-all duration-300"
                           style={{
                             width: `${
-                              (subtasks.filter((st) => st.status === "completed")
-                                .length /
+                              (subtasks.filter(
+                                (st) => st.status === "completed"
+                              ).length /
                                 subtasks.length) *
                               100
                             }%`,
@@ -1469,7 +1615,9 @@ export default function TaskDetailPage() {
                                 }
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <SelectTrigger className={`h-7 w-28 text-xs ${statusConfig.badgeColor} border-0`}>
+                                <SelectTrigger
+                                  className={`h-7 w-28 text-xs ${statusConfig.badgeColor} border-0`}
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1480,7 +1628,9 @@ export default function TaskDetailPage() {
                                   <SelectItem value="completed">
                                     Completed
                                   </SelectItem>
-                                  <SelectItem value="blocked">Blocked</SelectItem>
+                                  <SelectItem value="blocked">
+                                    Blocked
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
 
@@ -1502,24 +1652,27 @@ export default function TaskDetailPage() {
                               {subtask.due_date && (
                                 <div className="flex items-center gap-1 text-xs text-gray-500">
                                   <Calendar className="h-3 w-3" />
-                                  {new Date(subtask.due_date).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      month: "short",
-                                      day: "numeric",
-                                    }
-                                  )}
+                                  {new Date(
+                                    subtask.due_date
+                                  ).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
                                 </div>
                               )}
 
                               {/* Priority */}
                               {subtask.priority && (
                                 <div className="flex items-center gap-1 text-xs">
-                                  <Flag className={`h-3 w-3 ${
-                                    subtask.priority >= 8 ? "text-red-500" :
-                                    subtask.priority >= 5 ? "text-orange-500" :
-                                    "text-yellow-500"
-                                  }`} />
+                                  <Flag
+                                    className={`h-3 w-3 ${
+                                      subtask.priority >= 8
+                                        ? "text-red-500"
+                                        : subtask.priority >= 5
+                                        ? "text-orange-500"
+                                        : "text-yellow-500"
+                                    }`}
+                                  />
                                   <span className="text-gray-500">
                                     P{subtask.priority}
                                   </span>
@@ -1772,9 +1925,7 @@ export default function TaskDetailPage() {
 
           {/* Due Date */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">
-              Due Date
-            </h3>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Due Date</h3>
             {editing ? (
               <input
                 type="datetime-local"
@@ -1796,9 +1947,7 @@ export default function TaskDetailPage() {
 
           {/* Priority */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">
-              Priority
-            </h3>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Priority</h3>
             {editing ? (
               <div className="space-y-2">
                 <input
@@ -1824,11 +1973,15 @@ export default function TaskDetailPage() {
               </div>
             ) : task.priority ? (
               <div className="flex items-center gap-2 text-sm">
-                <Flag className={`h-4 w-4 ${
-                  task.priority >= 8 ? "text-red-500" :
-                  task.priority >= 5 ? "text-orange-500" :
-                  "text-yellow-500"
-                }`} />
+                <Flag
+                  className={`h-4 w-4 ${
+                    task.priority >= 8
+                      ? "text-red-500"
+                      : task.priority >= 5
+                      ? "text-orange-500"
+                      : "text-yellow-500"
+                  }`}
+                />
                 <span className="text-gray-700 font-medium">
                   Priority {task.priority}
                 </span>
@@ -1908,14 +2061,19 @@ export default function TaskDetailPage() {
       />
 
       {/* Error Dialog */}
-      <Dialog open={errorDialog.isOpen} onOpenChange={(open) => setErrorDialog({ isOpen: open, message: "" })}>
+      <Dialog
+        open={errorDialog.isOpen}
+        onOpenChange={(open) => setErrorDialog({ isOpen: open, message: "" })}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Error</DialogTitle>
             <DialogDescription>{errorDialog.message}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button onClick={() => setErrorDialog({ isOpen: false, message: "" })}>
+            <Button
+              onClick={() => setErrorDialog({ isOpen: false, message: "" })}
+            >
               OK
             </Button>
           </DialogFooter>

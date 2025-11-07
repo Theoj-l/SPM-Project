@@ -393,9 +393,14 @@ class TaskService:
             else:
                 # Check project membership for non-admin users
                 can_manage = ProjectService.can_manage_project(task.project_id, user_id)
+                
+                # If not a manager/owner, check if staff is assigned to the task
+                if not can_manage and "staff" in user_roles:
+                    if task.assignee_ids and user_id in task.assignee_ids:
+                        can_manage = True
             
             if not can_manage:
-                raise PermissionError("Admin role alone cannot archive tasks. Admin+Manager/Staff required.")
+                raise PermissionError("Admin role alone cannot archive tasks. Admin+Manager/Staff required, or staff must be assigned to the task.")
 
             # Archive the task by setting type to "archived"
             result = self.client.table("tasks").update({"type": "archived"}).eq("id", task_id).execute()
