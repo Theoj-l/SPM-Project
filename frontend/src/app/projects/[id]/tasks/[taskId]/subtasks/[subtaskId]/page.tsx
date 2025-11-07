@@ -107,7 +107,7 @@ function CommentItem({
   projectMembers,
 }: {
   comment: Comment;
-  user: any;
+  user: { id: string; email: string; full_name?: string } | null;
   onReply: (parentCommentId: string, replyText: string) => void;
   onDelete: (commentId: string) => void;
   onEdit: (commentId: string, content: string) => void;
@@ -439,8 +439,10 @@ export default function SubTaskDetailPage() {
       await SubTasksAPI.update(subtaskId as string, formData);
       await loadData();
       setEditing(false);
-    } catch (error: any) {
-      setError(error.message || "Failed to update subtask");
+    } catch (error: unknown) {
+      setError(
+        error instanceof Error ? error.message : "Failed to update subtask"
+      );
       console.error("Error saving subtask:", error);
     } finally {
       setSaving(false);
@@ -941,9 +943,9 @@ export default function SubTaskDetailPage() {
               {editing ? (
                 <Select
                   value={formData.status}
-                  onValueChange={(value: any) =>
-                    setFormData({ ...formData, status: value })
-                  }
+                  onValueChange={(
+                    value: "todo" | "in_progress" | "completed" | "blocked"
+                  ) => setFormData({ ...formData, status: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
