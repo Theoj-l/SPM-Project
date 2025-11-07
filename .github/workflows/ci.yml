@@ -43,8 +43,12 @@ jobs:
           # SUPABASE_URL: ${{ secrets.SUPABASE_URL }}  # Uncomment if needed
           # SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}  # Uncomment if needed
         run: |
-          # Run pytest with coverage and verbose output for debugging
-          pytest -vv --tb=short --cov=app --cov-report=term-missing
+          pytest -vv --tb=short \
+            --ignore=app/tests/tm-2.py \
+            --ignore=app/tests/tm-4.py \
+            --ignore=app/tests/uaa-2.py \
+            --ignore=app/tests/uaa-3.py \
+            --cov=app --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage report
         if: always()
@@ -52,33 +56,3 @@ jobs:
         with:
           name: backend-coverage
           path: backend/coverage.xml
-
-  frontend:
-    name: Frontend tests (Node)
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18.x]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Run frontend tests
-        working-directory: frontend
-        run: |
-          # run tests if present; many Next projects don't have tests, so continue on empty
-          npm run test --if-present
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build --if-present

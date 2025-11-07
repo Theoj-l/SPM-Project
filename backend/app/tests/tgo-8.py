@@ -843,13 +843,17 @@ class TestArchiveTaskEdgeCases:
         
         mock_users_table = MagicMock()
         mock_users_table.select.return_value.eq.return_value.execute.return_value = Mock(
-            data=[{"roles": ["staff"]}]
+            data=[{"roles": []}]  # No roles (not admin)
+        )
+        
+        # Mock project_members query - user is NOT a member
+        mock_members_select = MagicMock()
+        mock_members_select.eq.return_value.eq.return_value.limit.return_value.execute.return_value = Mock(
+            data=[]  # Empty - user is not a project member
         )
         
         mock_members_table = MagicMock()
-        mock_members_table.select.return_value.eq.return_value.execute.return_value = Mock(
-            data=[]
-        )
+        mock_members_table.select.return_value = mock_members_select
         
         mock_client = MagicMock()
         def table_side_effect(table_name):
