@@ -23,9 +23,12 @@ def test_notification_service_create_notification():
     from app.services.notification_service import NotificationService
     from app.models.notification import NotificationCreate
     
-    service = NotificationService()
-    
-    with patch.object(service.client, 'table') as mock_table:
+    with patch('app.services.notification_service.get_supabase_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        service = NotificationService()
+        
         mock_chain = MagicMock()
         mock_chain.insert.return_value.execute.return_value.data = [{
             "id": "notif1",
@@ -35,7 +38,7 @@ def test_notification_service_create_notification():
             "message": "You have been assigned to a task",
             "read": False
         }]
-        mock_table.return_value = mock_chain
+        mock_client.table.return_value = mock_chain
         
         notification_data = NotificationCreate(
             user_id="user1",
@@ -54,9 +57,12 @@ def test_notification_service_create_task_assigned_notification():
     """Test creating task assignment notification"""
     from app.services.notification_service import NotificationService
     
-    service = NotificationService()
-    
-    with patch.object(service.client, 'table') as mock_table:
+    with patch('app.services.notification_service.get_supabase_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        service = NotificationService()
+        
         mock_chain = MagicMock()
         mock_chain.insert.return_value.execute.return_value.data = [{
             "id": "notif1",
@@ -65,7 +71,7 @@ def test_notification_service_create_task_assigned_notification():
             "title": "New Task Assigned",
             "message": "You have been assigned to task 'Test Task'"
         }]
-        mock_table.return_value = mock_chain
+        mock_client.table.return_value = mock_chain
         
         result = service.create_task_assigned_notification(
             user_id="assignee1",
@@ -81,15 +87,18 @@ def test_notification_service_mark_as_read():
     """Test marking notification as read"""
     from app.services.notification_service import NotificationService
     
-    service = NotificationService()
-    
-    with patch.object(service.client, 'table') as mock_table:
+    with patch('app.services.notification_service.get_supabase_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        service = NotificationService()
+        
         mock_chain = MagicMock()
         mock_chain.update.return_value.eq.return_value.eq.return_value.execute.return_value.data = [{
             "id": "notif1",
             "read": True
         }]
-        mock_table.return_value = mock_chain
+        mock_client.table.return_value = mock_chain
         
         result = service.mark_as_read("notif1", "user1")
         
@@ -100,12 +109,15 @@ def test_notification_service_get_unread_count():
     """Test getting unread notification count"""
     from app.services.notification_service import NotificationService
     
-    service = NotificationService()
-    
-    with patch.object(service.client, 'table') as mock_table:
+    with patch('app.services.notification_service.get_supabase_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        service = NotificationService()
+        
         mock_chain = MagicMock()
         mock_chain.select.return_value.eq.return_value.eq.return_value.execute.return_value.count = 5
-        mock_table.return_value = mock_chain
+        mock_client.table.return_value = mock_chain
         
         result = service.get_unread_count("user1")
         

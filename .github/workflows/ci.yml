@@ -38,10 +38,10 @@ jobs:
       - name: Run backend tests with coverage
         working-directory: backend
         env:
-          # Add any required environment variables here
           PYTHONPATH: ${{ github.workspace }}/backend
-          # SUPABASE_URL: ${{ secrets.SUPABASE_URL }}  # Uncomment if needed
-          # SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}  # Uncomment if needed
+          # Mock Supabase credentials for tests
+          SUPABASE_URL: https://mock-supabase-url.supabase.co
+          SUPABASE_KEY: mock-supabase-key-for-testing-only
         run: |
           pytest -vv --tb=short \
             --ignore=app/tests/tm-2.py \
