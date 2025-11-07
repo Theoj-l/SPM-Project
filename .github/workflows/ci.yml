@@ -37,9 +37,14 @@ jobs:
 
       - name: Run backend tests with coverage
         working-directory: backend
+        env:
+          # Add any required environment variables here
+          PYTHONPATH: ${{ github.workspace }}/backend
+          # SUPABASE_URL: ${{ secrets.SUPABASE_URL }}  # Uncomment if needed
+          # SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}  # Uncomment if needed
         run: |
-          # Run pytest with coverage; prevent CI from failing on very long runs by limiting output
-          pytest --maxfail=1 -q --cov=app --cov-report=term-missing
+          # Run pytest with coverage and verbose output for debugging
+          pytest -vv --tb=short --cov=app --cov-report=term-missing
 
       - name: Upload coverage report
         if: always()
