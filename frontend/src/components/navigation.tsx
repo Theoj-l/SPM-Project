@@ -46,8 +46,8 @@ export default function Navigation({ children }: NavigationProps) {
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
 
-  // Don't show sidebar on login or logout pages
-  if (pathname === "/login" || pathname === "/logout") {
+  // Don't show sidebar on login, logout, or reset-password pages
+  if (pathname === "/login" || pathname === "/logout" || pathname === "/reset-password") {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
 

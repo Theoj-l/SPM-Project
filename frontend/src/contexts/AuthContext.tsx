@@ -125,6 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const token = localStorage.getItem("access_token");
       if (!token) {
         setIsLoading(false);
+        setIsRolesLoaded(true); // No roles needed if not authenticated
         return;
       }
 
@@ -169,7 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
     setUser(null);
-    setIsRolesLoaded(false);
+    setIsRolesLoaded(true); // No roles needed if not authenticated
     setIsAuthLoading(false);
   };
 
