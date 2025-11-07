@@ -211,24 +211,57 @@ class TaskService:
                     # Get all assignees (both old and new) to notify
                     all_assignees = updated_task.assignee_ids or []
                     
-                    # Determine what was updated
+                    # Determine what was actually updated by comparing old vs new values
                     updated_fields = []
+                    
+                    # Status change
                     if status_changed:
-                        updated_fields.append(("status", {"old_status": old_status, "new_status": update_data['status']}))
-                    if 'title' in update_data:
-                        updated_fields.append(("title", {"new_title": update_data['title']}))
+                        updated_fields.append(("status", {"old_status": old_status, "new_status": updated_task.status}))
+                    
+                    # Title change
+                    if 'title' in update_data and task.title != updated_task.title:
+                        updated_fields.append(("title", {"old_title": task.title, "new_title": updated_task.title}))
+                    
+                    # Description change
                     if 'description' in update_data:
-                        updated_fields.append(("description", {}))
+                        old_desc = task.description or ""
+                        new_desc = updated_task.description or ""
+                        if old_desc != new_desc:
+                            updated_fields.append(("description", {}))
+                    
+                    # Priority change
                     if 'priority' in update_data:
-                        updated_fields.append(("priority", {"new_priority": update_data['priority']}))
+                        old_priority = task.priority
+                        new_priority = updated_task.priority
+                        if old_priority != new_priority:
+                            updated_fields.append(("priority", {"old_priority": old_priority, "new_priority": new_priority}))
+                    
+                    # Notes change
                     if 'notes' in update_data:
-                        updated_fields.append(("notes", {}))
+                        old_notes = task.notes or ""
+                        new_notes = updated_task.notes or ""
+                        if old_notes != new_notes:
+                            updated_fields.append(("notes", {}))
+                    
+                    # Tags change
                     if 'tags' in update_data:
-                        updated_fields.append(("tags", {"tags": update_data['tags']}))
+                        old_tags = set(task.tags or [])
+                        new_tags = set(updated_task.tags or [])
+                        if old_tags != new_tags:
+                            updated_fields.append(("tags", {"old_tags": list(old_tags), "new_tags": list(new_tags)}))
+                    
+                    # Due date change
                     if 'due_date' in update_data:
-                        updated_fields.append(("due_date", {"new_due_date": update_data['due_date']}))
-                    if added_assignees:
-                        updated_fields.append(("assignees", {}))
+                        old_due_date = task.due_date or ""
+                        new_due_date = updated_task.due_date or ""
+                        if old_due_date != new_due_date:
+                            updated_fields.append(("due_date", {"old_due_date": old_due_date, "new_due_date": new_due_date}))
+                    
+                    # Assignees change (only if there were actual changes)
+                    if added_assignees or (old_assignees != new_assignees):
+                        removed_assignees = old_assignees - new_assignees
+                        if added_assignees or removed_assignees:
+                            updated_fields.append(("assignees", {"added": list(added_assignees), "removed": list(removed_assignees)}))
                     
                     # Optimize: Batch fetch all assignee info instead of querying one by one
                     assignees_to_notify = [aid for aid in all_assignees if aid != user_id]
@@ -250,10 +283,12 @@ class TaskService:
                         assignee_email = assignee_info["email"]
                         assignee_name = assignee_info["display_name"]
                         
-                        # Send notifications and emails for each type of update
+                        # Check if this is a new assignment
+                        is_new_assignment = assignee_id in added_assignees
+                        
+                        # Create notifications for each change type (for in-app notifications)
                         for update_type, update_details in updated_fields:
                             if update_type == "status":
-                                # Status change notification
                                 notification_service.create_task_update_notification(
                                     user_id=assignee_id,
                                     task_id=task_id,
@@ -262,38 +297,14 @@ class TaskService:
                                     new_status=update_data['status'],
                                     project_id=updated_task.project_id
                                 )
-                                # Send email for status change
-                                email_service.send_task_update_email(
-                                    user_email=assignee_email,
-                                    user_name=assignee_name,
-                                    task_title=updated_task.title,
-                                    task_id=task_id,
-                                    project_name=project_name,
-                                    project_id=updated_task.project_id,
-                                    updated_by_name=updater_name,
-                                    update_type="status",
-                                    update_details=update_details
-                                )
-                            elif update_type == "assignees" and assignee_id in added_assignees:
-                                # New assignment notification
+                            elif update_type == "assignees" and is_new_assignment:
                                 notification_service.create_task_assigned_notification(
                                     user_id=assignee_id,
                                     task_id=task_id,
                                     task_title=updated_task.title,
                                     project_id=updated_task.project_id
                                 )
-                                # Send email for new assignment
-                                email_service.send_task_assigned_email(
-                                    user_email=assignee_email,
-                                    user_name=assignee_name,
-                                    task_title=updated_task.title,
-                                    task_id=task_id,
-                                    project_name=project_name,
-                                    project_id=updated_task.project_id
-                                )
                             else:
-                                # Other updates (title, description, priority, notes, tags)
-                                # Create general task update notification
                                 notification_service.create_notification(
                                     NotificationCreate(
                                         user_id=assignee_id,
@@ -309,18 +320,21 @@ class TaskService:
                                         }
                                     )
                                 )
-                                # Send email for other updates
-                                email_service.send_task_update_email(
-                                    user_email=assignee_email,
-                                    user_name=assignee_name,
-                                    task_title=updated_task.title,
-                                    task_id=task_id,
-                                    project_name=project_name,
-                                    project_id=updated_task.project_id,
-                                    updated_by_name=updater_name,
-                                    update_type=update_type,
-                                    update_details=update_details
-                                )
+                        
+                        # Send ONE consolidated email with all changes (only if there are actual changes)
+                        if updated_fields:
+                            changes_list = [{"type": update_type, "details": update_details} for update_type, update_details in updated_fields]
+                            email_service.send_task_updates_email(
+                                user_email=assignee_email,
+                                user_name=assignee_name,
+                                task_title=updated_task.title,
+                                task_id=task_id,
+                                project_name=project_name,
+                                project_id=updated_task.project_id,
+                                updated_by_name=updater_name,
+                                changes=changes_list,
+                                is_new_assignment=is_new_assignment
+                            )
                 
                 return updated_task
             else:
@@ -899,17 +913,19 @@ class TaskService:
     async def update_subtask(self, subtask_id: str, updates: dict, user_id: str) -> Optional[SubTaskOut]:
         """Update a sub-task"""
         try:
-            # First get the subtask to verify access through parent task
-            subtask_result = self.client.table("subtasks").select("parent_task_id").eq("id", subtask_id).execute()
-            if not subtask_result.data:
+            # First get the subtask to verify access through parent task and get old data
+            old_subtask_result = self.client.table("subtasks").select("*").eq("id", subtask_id).execute()
+            if not old_subtask_result.data:
                 return None
 
-            parent_task_id = subtask_result.data[0]["parent_task_id"]
+            old_subtask = old_subtask_result.data[0]
+            parent_task_id = old_subtask["parent_task_id"]
             task = await self.get_task_by_id(parent_task_id, user_id, include_archived=True)
             if not task:
                 return None
 
             # Validate assignee_ids if being updated
+            old_assignees = set(old_subtask.get("assigned", []))
             if "assignee_ids" in updates or "assigned" in updates:
                 assignee_ids = updates.get("assignee_ids") or updates.get("assigned")
                 if not assignee_ids or len(assignee_ids) == 0:
@@ -917,6 +933,13 @@ class TaskService:
                 # Map assignee_ids to assigned if needed
                 if "assignee_ids" in updates:
                     updates["assigned"] = updates.pop("assignee_ids")
+            
+            new_assignees = set(updates.get("assigned", old_assignees))
+            added_assignees = new_assignees - old_assignees
+            
+            # Track old values for change detection
+            old_status = old_subtask.get("status")
+            status_changed = 'status' in updates and updates['status'] != old_status
 
             # Update the subtask
             result = self.client.table("subtasks").update(updates).eq("id", subtask_id).execute()
@@ -925,23 +948,159 @@ class TaskService:
                 subtask_data = result.data[0]
                 # Get assignee names
                 assignee_names = []
-                if subtask_data.get("assignee_ids"):
-                    users_result = self.client.table("users").select("email, display_name").in_("id", subtask_data["assignee_ids"]).execute()
+                assigned_ids = subtask_data.get("assigned", [])
+                if assigned_ids:
+                    users_result = self.client.table("users").select("email, display_name").in_("id", assigned_ids).execute()
                     assignee_names = [
                         user.get("display_name") or user.get("email", "").split("@")[0] 
                         for user in users_result.data
                     ]
 
-                return SubTaskOut(
+                updated_subtask = SubTaskOut(
                     id=subtask_data["id"],
                     title=subtask_data["title"],
                     description=subtask_data.get("description"),
                     parent_task_id=subtask_data["parent_task_id"],
                     status=subtask_data["status"],
-                    assignee_ids=subtask_data.get("assignee_ids", []),
+                    assignee_ids=assigned_ids,
                     assignee_names=assignee_names,
                     created_at=subtask_data.get("created_at")
                 )
+                
+                # Send email notifications for subtask updates
+                if updates:
+                    notification_service = NotificationService()
+                    email_service = EmailService()
+                    
+                    # Get project name and updater info
+                    project_result = self.client.table("projects").select("name").eq("id", task.project_id).execute()
+                    project_name = project_result.data[0].get("name", "Unknown Project") if project_result.data else "Unknown Project"
+                    
+                    updater_result = self.client.table("users").select("email, display_name").eq("id", user_id).execute()
+                    updater_data = updater_result.data[0] if updater_result.data else {}
+                    updater_name = updater_data.get("display_name") or updater_data.get("email", "").split("@")[0] or "Someone"
+                    
+                    # Determine what was actually updated by comparing old vs new values
+                    updated_fields = []
+                    
+                    # Status change
+                    if status_changed:
+                        updated_fields.append(("status", {"old_status": old_status, "new_status": updated_subtask.status}))
+                    
+                    # Title change
+                    if 'title' in updates and old_subtask.get("title") != updated_subtask.title:
+                        updated_fields.append(("title", {"old_title": old_subtask.get("title"), "new_title": updated_subtask.title}))
+                    
+                    # Description change
+                    if 'description' in updates:
+                        old_desc = old_subtask.get("description") or ""
+                        new_desc = updated_subtask.description or ""
+                        if old_desc != new_desc:
+                            updated_fields.append(("description", {}))
+                    
+                    # Notes change
+                    if 'notes' in updates:
+                        old_notes = old_subtask.get("notes") or ""
+                        new_notes = updated_subtask.notes or ""
+                        if old_notes != new_notes:
+                            updated_fields.append(("notes", {}))
+                    
+                    # Tags change
+                    if 'tags' in updates:
+                        old_tags = set(old_subtask.get("tags", []) or [])
+                        new_tags = set(updated_subtask.tags or [])
+                        if old_tags != new_tags:
+                            updated_fields.append(("tags", {"old_tags": list(old_tags), "new_tags": list(new_tags)}))
+                    
+                    # Due date change
+                    if 'due_date' in updates:
+                        old_due_date = old_subtask.get("due_date") or ""
+                        new_due_date = updated_subtask.due_date or ""
+                        if old_due_date != new_due_date:
+                            updated_fields.append(("due_date", {"old_due_date": old_due_date, "new_due_date": new_due_date}))
+                    
+                    # Assignees change (only if there were actual changes)
+                    removed_assignees = old_assignees - new_assignees
+                    if added_assignees or removed_assignees:
+                        updated_fields.append(("assignees", {"added": list(added_assignees), "removed": list(removed_assignees)}))
+                    
+                    # Get all assignees to notify
+                    all_assignees = assigned_ids
+                    assignees_to_notify = [aid for aid in all_assignees if aid != user_id]
+                    assignee_info_map = {}
+                    if assignees_to_notify:
+                        assignees_result = self.client.table("users").select("id, email, display_name").in_("id", assignees_to_notify).execute()
+                        for assignee_data in assignees_result.data or []:
+                            assignee_info_map[assignee_data["id"]] = {
+                                "email": assignee_data.get("email"),
+                                "display_name": assignee_data.get("display_name") or assignee_data.get("email", "").split("@")[0]
+                            }
+                    
+                    # Notify all assignees about updates
+                    for assignee_id in assignees_to_notify:
+                        assignee_info = assignee_info_map.get(assignee_id)
+                        if not assignee_info:
+                            continue
+                        
+                        assignee_email = assignee_info["email"]
+                        assignee_name = assignee_info["display_name"]
+                        
+                        # Check if this is a new assignment
+                        is_new_assignment = assignee_id in added_assignees
+                        
+                        # Create notifications for each change type
+                        for update_type, update_details in updated_fields:
+                            if update_type == "status":
+                                notification_service.create_task_update_notification(
+                                    user_id=assignee_id,
+                                    task_id=parent_task_id,
+                                    task_title=updated_subtask.title,
+                                    old_status=old_status,
+                                    new_status=updates['status'],
+                                    project_id=task.project_id
+                                )
+                            elif update_type == "assignees" and is_new_assignment:
+                                notification_service.create_task_assigned_notification(
+                                    user_id=assignee_id,
+                                    task_id=parent_task_id,
+                                    task_title=updated_subtask.title,
+                                    project_id=task.project_id
+                                )
+                            else:
+                                notification_service.create_notification(
+                                    NotificationCreate(
+                                        user_id=assignee_id,
+                                        type="task_update",
+                                        title=f"Subtask {update_type.title()} Updated",
+                                        message=f"Subtask '{updated_subtask.title}' {update_type} has been updated by {updater_name}",
+                                        link_url=f"/projects/{task.project_id}/tasks/{parent_task_id}/subtasks/{subtask_id}",
+                                        metadata={
+                                            "task_id": parent_task_id,
+                                            "subtask_id": subtask_id,
+                                            "project_id": task.project_id,
+                                            "update_type": update_type,
+                                            **update_details
+                                        }
+                                    )
+                                )
+                        
+                        # Send ONE consolidated email with all changes
+                        if updated_fields:
+                            changes_list = [{"type": update_type, "details": update_details} for update_type, update_details in updated_fields]
+                            # Use parent task info for email context
+                            email_service.send_task_updates_email(
+                                user_email=assignee_email,
+                                user_name=assignee_name,
+                                task_title=f"{task.title} - {updated_subtask.title}",  # Include parent task in title
+                                task_id=parent_task_id,
+                                project_name=project_name,
+                                project_id=task.project_id,
+                                updated_by_name=updater_name,
+                                changes=changes_list,
+                                is_new_assignment=is_new_assignment
+                            )
+
+                return updated_subtask
             else:
                 return None
         except Exception as e:
