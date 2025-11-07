@@ -522,6 +522,8 @@ export default function TaskDetailPage() {
     status: "todo" as Task["status"],
     notes: "",
     assignee_ids: [] as string[],
+    priority: undefined as number | undefined,
+    due_date: "" as string,
   });
 
   // Load project and task details
@@ -582,6 +584,17 @@ export default function TaskDetailPage() {
 
       if (taskData) {
         setTask(taskData);
+        // Convert backend date format to datetime-local format (YYYY-MM-DDTHH:mm)
+        let formattedDueDate = "";
+        if (taskData.due_date) {
+          const date = new Date(taskData.due_date);
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+          formattedDueDate = `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
         // Initialize edit form with current task data
         setEditForm({
           title: taskData.title,
@@ -589,6 +602,8 @@ export default function TaskDetailPage() {
           status: taskData.status,
           notes: taskData.notes || "",
           assignee_ids: taskData.assignee_ids || [],
+          priority: taskData.priority,
+          due_date: formattedDueDate,
         });
       } else {
         setError("Task not found");
@@ -688,6 +703,18 @@ export default function TaskDetailPage() {
       setSaving(true);
       setError("");
 
+      // Convert datetime-local format to backend format (YYYY-MM-DD HH:MM:SS)
+      let formattedDueDate = undefined;
+      if (editForm.due_date) {
+        const date = new Date(editForm.due_date);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        formattedDueDate = `${year}-${month}-${day} ${hours}:${minutes}:00`;
+      }
+
       // Update task via API
       const updatedTask = await TasksAPI.update(task.id, {
         title: editForm.title,
@@ -695,6 +722,8 @@ export default function TaskDetailPage() {
         status: editForm.status,
         notes: editForm.notes,
         assignee_ids: editForm.assignee_ids,
+        priority: editForm.priority,
+        due_date: formattedDueDate,
       });
 
       // Update local state
@@ -710,12 +739,25 @@ export default function TaskDetailPage() {
   // Cancel editing
   const cancelEdit = () => {
     if (task) {
+      // Convert backend date format to datetime-local format (YYYY-MM-DDTHH:mm)
+      let formattedDueDate = "";
+      if (task.due_date) {
+        const date = new Date(task.due_date);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        formattedDueDate = `${year}-${month}-${day}T${hours}:${minutes}`;
+      }
       setEditForm({
         title: task.title,
         description: task.description || "",
         status: task.status,
         notes: task.notes || "",
         assignee_ids: task.assignee_ids || [],
+        priority: task.priority,
+        due_date: formattedDueDate,
       });
     }
     setEditing(false);
@@ -1673,24 +1715,58 @@ export default function TaskDetailPage() {
           </div>
 
           {/* Due Date */}
-          {task.due_date && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-900 mb-3">
-                Due Date
-              </h3>
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">
+              Due Date
+            </h3>
+            {editing ? (
+              <input
+                type="datetime-local"
+                value={editForm.due_date}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, due_date: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
+            ) : task.due_date ? (
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <Calendar className="h-4 w-4" />
                 {new Date(task.due_date).toLocaleDateString()}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500 italic">No due date set</p>
+            )}
+          </div>
 
           {/* Priority */}
-          {task.priority && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-900 mb-3">
-                Priority
-              </h3>
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">
+              Priority
+            </h3>
+            {editing ? (
+              <div className="space-y-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={editForm.priority ?? ""}
+                  onChange={(e) => {
+                    const value =
+                      e.target.value === ""
+                        ? undefined
+                        : parseInt(e.target.value, 10);
+                    if (value === undefined || (value >= 1 && value <= 10)) {
+                      setEditForm({ ...editForm, priority: value });
+                    }
+                  }}
+                  placeholder="1 (lowest) to 10 (highest)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+                <p className="text-xs text-gray-500">
+                  Enter a value from 1 (lowest) to 10 (highest), or leave empty
+                </p>
+              </div>
+            ) : task.priority ? (
               <div className="flex items-center gap-2 text-sm">
                 <Flag className={`h-4 w-4 ${
                   task.priority >= 8 ? "text-red-500" :
@@ -1701,8 +1777,10 @@ export default function TaskDetailPage() {
                   Priority {task.priority}
                 </span>
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500 italic">No priority set</p>
+            )}
+          </div>
 
           {/* Notes */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">

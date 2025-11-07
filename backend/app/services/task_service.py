@@ -129,7 +129,7 @@ class TaskService:
                 raise ValueError("Project cannot be changed after task creation")
             
             # Prepare update data - only allow certain fields to be updated
-            allowed_fields = ['title', 'description', 'status', 'notes', 'tags', 'priority']
+            allowed_fields = ['title', 'description', 'status', 'notes', 'tags', 'priority', 'due_date']
             update_data = {}
             
             for field in allowed_fields:
@@ -225,6 +225,8 @@ class TaskService:
                         updated_fields.append(("notes", {}))
                     if 'tags' in update_data:
                         updated_fields.append(("tags", {"tags": update_data['tags']}))
+                    if 'due_date' in update_data:
+                        updated_fields.append(("due_date", {"new_due_date": update_data['due_date']}))
                     if added_assignees:
                         updated_fields.append(("assignees", {}))
                     
