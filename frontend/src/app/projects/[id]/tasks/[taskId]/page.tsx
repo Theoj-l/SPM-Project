@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Save,
   X,
+  Flag,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -1421,6 +1422,20 @@ export default function TaskDetailPage() {
                                   )}
                                 </div>
                               )}
+
+                              {/* Priority */}
+                              {subtask.priority && (
+                                <div className="flex items-center gap-1 text-xs">
+                                  <Flag className={`h-3 w-3 ${
+                                    subtask.priority >= 8 ? "text-red-500" :
+                                    subtask.priority >= 5 ? "text-orange-500" :
+                                    "text-yellow-500"
+                                  }`} />
+                                  <span className="text-gray-500">
+                                    P{subtask.priority}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1666,6 +1681,25 @@ export default function TaskDetailPage() {
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <Calendar className="h-4 w-4" />
                 {new Date(task.due_date).toLocaleDateString()}
+              </div>
+            </div>
+          )}
+
+          {/* Priority */}
+          {task.priority && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h3 className="text-sm font-medium text-gray-900 mb-3">
+                Priority
+              </h3>
+              <div className="flex items-center gap-2 text-sm">
+                <Flag className={`h-4 w-4 ${
+                  task.priority >= 8 ? "text-red-500" :
+                  task.priority >= 5 ? "text-orange-500" :
+                  "text-yellow-500"
+                }`} />
+                <span className="text-gray-700 font-medium">
+                  Priority {task.priority}
+                </span>
               </div>
             </div>
           )}

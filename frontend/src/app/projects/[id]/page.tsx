@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ChevronRight,
   Archive,
+  Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -804,6 +805,20 @@ export default function ProjectDetailPage() {
                                   )}
                                 </div>
                               )}
+
+                            {/* Priority */}
+                            {task.priority && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <Flag className={`h-4 w-4 ${
+                                  task.priority >= 8 ? "text-red-500" :
+                                  task.priority >= 5 ? "text-orange-500" :
+                                  "text-yellow-500"
+                                }`} />
+                                <span className="font-medium text-gray-600">
+                                  Priority {task.priority}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1260,6 +1275,20 @@ export default function ProjectDetailPage() {
                                           : undefined,
                                     }
                                   )}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Priority */}
+                            {task.priority && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <Flag className={`h-4 w-4 ${
+                                  task.priority >= 8 ? "text-red-500" :
+                                  task.priority >= 5 ? "text-orange-500" :
+                                  "text-yellow-500"
+                                }`} />
+                                <span className="font-medium text-gray-600">
+                                  Priority {task.priority}
                                 </span>
                               </div>
                             )}
