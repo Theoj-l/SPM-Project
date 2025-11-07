@@ -1053,6 +1053,18 @@ class TaskService:
             # Upload to Supabase Storage (path is relative to bucket)
             storage_path = f"{task_id}/{file_id}_{filename}"
             try:
+                # Verify service role key is being used (should bypass RLS)
+                from app.config import settings
+                service_key = settings.supabase_service_key or settings.SUPABASE_SERVICE_KEY
+                if not service_key:
+                    raise Exception("SUPABASE_SERVICE_KEY is not set. Storage uploads require service role key to bypass RLS.")
+                
+                # Try to remove existing file first if it exists (prevents conflicts)
+                try:
+                    self.client.storage.from_("task_file").remove([storage_path])
+                except:
+                    pass  # File doesn't exist, continue
+                
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })
@@ -1172,6 +1184,18 @@ class TaskService:
             parent_task_id = subtask.parent_task_id
             storage_path = f"{parent_task_id}/{subtask_id}/{file_id}_{filename}"
             try:
+                # Verify service role key is being used (should bypass RLS)
+                from app.config import settings
+                service_key = settings.supabase_service_key or settings.SUPABASE_SERVICE_KEY
+                if not service_key:
+                    raise Exception("SUPABASE_SERVICE_KEY is not set. Storage uploads require service role key to bypass RLS.")
+                
+                # Try to remove existing file first if it exists (prevents conflicts)
+                try:
+                    self.client.storage.from_("task_file").remove([storage_path])
+                except:
+                    pass  # File doesn't exist, continue
+                
                 upload_result = self.client.storage.from_("task_file").upload(storage_path, file_content, {
                     "content-type": content_type
                 })

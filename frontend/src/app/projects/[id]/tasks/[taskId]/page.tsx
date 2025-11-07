@@ -44,6 +44,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import AssigneeSelector from "@/components/AssigneeSelector";
 
 // Helper function to format date in Singapore time
@@ -444,6 +453,20 @@ export default function TaskDetailPage() {
   const [newComment, setNewComment] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+    isOpen: boolean;
+    file: TaskFile | null;
+  }>({
+    isOpen: false,
+    file: null,
+  });
+  const [errorDialog, setErrorDialog] = useState<{
+    isOpen: boolean;
+    message: string;
+  }>({
+    isOpen: false,
+    message: "",
+  });
   
   // Mention state
   const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
@@ -968,7 +991,7 @@ export default function TaskDetailPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = file.filename;
+      a.download = file.original_filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -976,6 +999,30 @@ export default function TaskDetailPage() {
     } catch (error) {
       console.error("Error downloading file:", error);
       setError("Failed to download file");
+    }
+  };
+
+  // Delete file
+  const handleDeleteClick = (file: TaskFile) => {
+    setDeleteConfirmDialog({ isOpen: true, file });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmDialog.file) return;
+    
+    try {
+      await FilesAPI.delete(deleteConfirmDialog.file.id);
+      // Refresh files list
+      const updatedFiles = await FilesAPI.list(taskId);
+      setFiles(updatedFiles);
+      setDeleteConfirmDialog({ isOpen: false, file: null });
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      setDeleteConfirmDialog({ isOpen: false, file: null });
+      setErrorDialog({
+        isOpen: true,
+        message: "Failed to delete file. You may only delete files you uploaded.",
+      });
     }
   };
 
@@ -1559,19 +1606,28 @@ export default function TaskDetailPage() {
                       <Paperclip className="h-5 w-5 text-gray-400" />
                       <div>
                         <p className="font-medium text-gray-900">
-                          {file.filename}
+                          {file.original_filename}
                         </p>
                         <p className="text-sm text-gray-500">
                           {(file.file_size / 1024 / 1024).toFixed(2)} MB
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => downloadFile(file)}
-                      className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
-                    >
-                      Download
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => downloadFile(file)}
+                        className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+                      >
+                        Download
+                      </button>
+                      <button
+                        onClick={() => handleDeleteClick(file)}
+                        className="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 text-sm flex items-center space-x-1"
+                        title="Delete file"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1838,6 +1894,33 @@ export default function TaskDetailPage() {
         variant={confirmDialog.variant}
         confirmText="Confirm"
       />
+
+      {/* Delete File Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={deleteConfirmDialog.isOpen}
+        onClose={() => setDeleteConfirmDialog({ isOpen: false, file: null })}
+        onConfirm={handleDeleteConfirm}
+        title="Delete File"
+        description={`Are you sure you want to delete "${deleteConfirmDialog.file?.original_filename}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+      />
+
+      {/* Error Dialog */}
+      <Dialog open={errorDialog.isOpen} onOpenChange={(open) => setErrorDialog({ isOpen: open, message: "" })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Error</DialogTitle>
+            <DialogDescription>{errorDialog.message}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setErrorDialog({ isOpen: false, message: "" })}>
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
